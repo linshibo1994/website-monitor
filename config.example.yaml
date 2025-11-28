@@ -1,0 +1,81 @@
+# ==========================================
+# SCHEELS Arc'teryx 商品监控系统配置文件
+# ==========================================
+# 使用方法：
+# 1. 复制此文件为 config.yaml
+# 2. 填入你的QQ邮箱配置
+# 3. 启动程序
+
+# 监控配置
+monitor:
+  # 目标URL
+  url: "https://www.scheels.com/c/all/b/arc'teryx/?redirect=arcteryx"
+  # 检测间隔（分钟）
+  interval_minutes: 10
+  # 请求超时（秒）
+  timeout_seconds: 60
+  # 失败重试次数
+  retry_times: 3
+  # 重试间隔（秒）
+  retry_interval: 10
+  # 是否无头模式运行浏览器
+  headless: true
+
+# 邮件配置（QQ邮箱）
+email:
+  # 是否启用邮件通知
+  enabled: true
+  # SMTP服务器
+  smtp_server: "smtp.qq.com"
+  # SMTP端口（SSL）
+  smtp_port: 465
+  # 发件人邮箱
+  sender: "your_qq_number@qq.com"
+  # QQ邮箱授权码（非QQ密码，需要在QQ邮箱设置中获取）
+  password: "your_smtp_authorization_code"
+  # 收件人邮箱（可以和发件人相同）
+  receiver: "receiver_email@qq.com"
+
+# 通知设置
+notification:
+  # 商品增加时通知
+  notify_on_added: true
+  # 商品减少时通知
+  notify_on_removed: true
+  # 程序异常时通知
+  notify_on_error: true
+
+# Web服务配置
+web:
+  # 主机地址
+  host: "127.0.0.1"
+  # 端口
+  port: 8080
+  # 是否开启调试模式
+  debug: false
+  # 允许的跨域来源
+  cors_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+
+# 数据库配置
+database:
+  # SQLite数据库路径（相对于项目根目录）
+  path: "data/monitor.db"
+  # 自动备份
+  auto_backup: true
+  # 备份保留天数
+  backup_retention_days: 30
+
+# 日志配置
+logging:
+  # 日志级别：DEBUG/INFO/WARNING/ERROR
+  level: "INFO"
+  # 日志文件路径（相对于项目根目录）
+  file: "logs/monitor.log"
+  # 单个日志文件最大大小（MB）
+  max_size_mb: 10
+  # 保留日志文件数量
+  backup_count: 5
+  # 是否输出到控制台
+  console: true

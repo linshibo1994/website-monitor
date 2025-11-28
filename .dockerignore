@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv/
+ENV/
+
+# 前端（Docker中不需要源码，只需要构建产物）
+frontend/node_modules
+frontend/src
+frontend/*.json
+frontend/*.js
+frontend/*.html
+
+# 数据和日志（通过volume挂载）
+data/
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 文档
+*.md
+!README.md
+
+# 测试
+tests/
+pytest_cache/
+.coverage
+htmlcov/

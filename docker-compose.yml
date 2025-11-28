@@ -1,0 +1,55 @@
+# ===========================================
+# Arc'teryx 商品监控系统 - Docker Compose
+# ===========================================
+# 使用方法:
+#   构建并启动: docker compose up -d --build
+#   查看日志:   docker compose logs -f
+#   停止服务:   docker compose down
+#   执行检测:   docker compose exec monitor python -m backend.app.services.monitor --once
+
+services:
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arcteryx-monitor
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # 持久化数据库和日志
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # 配置文件（可选：如需在容器外修改配置）
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # 定时监控任务（每10分钟执行一次）
+  monitor-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arcteryx-scheduler
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - TZ=Asia/Shanghai
+    # 启动守护进程模式
+    command: ["python", "-m", "backend.app.services.monitor", "--daemon"]
+    depends_on:
+      monitor:
+        condition: service_healthy
+
+networks:
+  default:
+    name: arcteryx-monitor-network

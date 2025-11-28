@@ -1,0 +1,37 @@
+# SCHEELS Arc'teryx 商品监控系统 - Python 依赖
+
+# Web框架
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# 数据库
+sqlalchemy==2.0.25
+aiosqlite==0.19.0
+
+# 网页抓取
+playwright==1.41.0
+
+# 配置管理
+pyyaml==6.0.1
+python-dotenv==1.0.0
+
+# 数据验证
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# 邮件发送
+aiosmtplib==3.0.1
+
+# 定时任务
+apscheduler==3.10.4
+
+# 日志
+loguru==0.7.2
+
+# 工具库
+httpx==0.26.0
+python-multipart==0.0.6
+
+# 开发工具
+pytest==7.4.4
+pytest-asyncio==0.23.3
