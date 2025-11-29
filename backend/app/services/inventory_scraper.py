@@ -1,0 +1,467 @@
+"""
+Arc'teryx 商品库存监控模块
+监控单个商品的各尺寸库存状态变化
+支持多种获取方式：API、页面抓取
+"""
+import re
+import json
+import asyncio
+import aiohttp
+from typing import Dict, List, Optional
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from loguru import logger
+
+from ..config import get_config
+
+
+@dataclass
+class VariantStock:
+    """变体库存信息"""
+    variant_sku: str      # 变体SKU
+    size: str             # 尺寸
+    stock_status: str     # 库存状态: InStock / OutOfStock / LowStock
+
+    def is_available(self) -> bool:
+        """是否有库存"""
+        return self.stock_status in ['InStock', 'LowStock']
+
+
+@dataclass
+class ProductInventory:
+    """商品库存信息"""
+    model_sku: str                    # 商品SKU
+    name: str                         # 商品名称
+    url: str                          # 商品URL
+    variants: List[VariantStock]      # 各尺寸库存
+    check_time: datetime              # 检查时间
+    status: str = "available"         # 商品状态: available / coming_soon / unavailable
+
+    def get_available_sizes(self) -> List[str]:
+        """获取有库存的尺寸"""
+        return [v.size for v in self.variants if v.is_available()]
+
+    def get_out_of_stock_sizes(self) -> List[str]:
+        """获取无库存的尺寸"""
+        return [v.size for v in self.variants if not v.is_available()]
+
+    def is_coming_soon(self) -> bool:
+        """是否为即将上架状态"""
+        return self.status == "coming_soon"
+
+    def is_available(self) -> bool:
+        """是否为正常可购买状态"""
+        return self.status == "available"
+
+    def to_dict(self) -> dict:
+        """转换为字典"""
+        return {
+            'model_sku': self.model_sku,
+            'name': self.name,
+            'url': self.url,
+            'variants': [asdict(v) for v in self.variants],
+            'check_time': self.check_time.isoformat(),
+            'status': self.status
+        }
+
+
+@dataclass
+class InventoryChange:
+    """库存变化记录"""
+    size: str                    # 尺寸
+    old_status: str              # 旧状态
+    new_status: str              # 新状态
+    became_available: bool       # 是否变为有库存
+
+
+class ArcteryxInventoryScraper:
+    """Arc'teryx 库存抓取器 - 使用 Playwright 浏览器"""
+
+    # 尺寸排序
+    SIZE_ORDER = {'XS': 0, 'S': 1, 'M': 2, 'L': 3, 'XL': 4, 'XXL': 5}
+
+    def __init__(self):
+        self.config = get_config()
+        # 检测是否在 Docker 环境中运行
+        self.is_docker = self._is_running_in_docker()
+
+    def _is_running_in_docker(self) -> bool:
+        """检测是否在 Docker 容器中运行"""
+        import os
+        # 检查 /.dockerenv 文件或 cgroup
+        if os.path.exists('/.dockerenv'):
+            return True
+        try:
+            with open('/proc/1/cgroup', 'r') as f:
+                return 'docker' in f.read()
+        except:
+            return False
+
+    def _extract_sku_from_url(self, url: str) -> Optional[str]:
+        """从URL中提取SKU"""
+        # URL格式: https://arcteryx.com/us/en/shop/mens/beta-sl-jacket-9685
+        match = re.search(r'-(\d+)(?:\?|$|/)?$', url.split('?')[0])
+        if match:
+            sku_num = match.group(1)
+            full_sku = f"X{sku_num.zfill(9)}"
+            return full_sku
+        return None
+
+    async def check_inventory(self, product_url: str, max_retries: int = 3) -> Optional[ProductInventory]:
+        """
+        检查商品库存（带重试机制）
+
+        Args:
+            product_url: 商品页面URL
+            max_retries: 最大重试次数
+
+        Returns:
+            ProductInventory 或 None（失败时）
+        """
+        for attempt in range(max_retries):
+            if attempt > 0:
+                wait_time = 5 * attempt  # 递增等待时间
+                logger.info(f"第 {attempt + 1} 次重试，等待 {wait_time} 秒...")
+                await asyncio.sleep(wait_time)
+
+            result = await self._check_inventory_once(product_url)
+            if result is not None:
+                return result
+
+            logger.warning(f"第 {attempt + 1}/{max_retries} 次尝试失败")
+
+        logger.error(f"Arc'teryx 库存检查失败，已重试 {max_retries} 次: {product_url}")
+        return None
+
+    async def _check_inventory_once(self, product_url: str) -> Optional[ProductInventory]:
+        """
+        单次检查商品库存 - 使用 Playwright 浏览器
+
+        Args:
+            product_url: 商品页面URL
+
+        Returns:
+            ProductInventory 或 None（失败时）
+        """
+        from playwright.async_api import async_playwright
+
+        logger.info(f"正在检查库存: {product_url}")
+
+        # 提取SKU
+        model_sku = self._extract_sku_from_url(product_url)
+        if not model_sku:
+            logger.error(f"无法从URL提取SKU: {product_url}")
+            return None
+
+        logger.info(f"SKU: {model_sku}")
+
+        browser = None
+        playwright_instance = None
+        try:
+            playwright_instance = await async_playwright().start()
+
+            # 启动浏览器时添加反检测参数
+            # 注意：Arc'teryx 网站会检测 headless 模式
+            # 在 Docker 中使用 Xvfb 虚拟显示，在本地使用非 headless 模式
+            browser_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-setuid-sandbox',
+            ]
+
+            # 检查是否有 DISPLAY 环境变量（Docker + Xvfb 环境）
+            import os
+            has_display = os.environ.get('DISPLAY') is not None
+
+            if self.is_docker and has_display:
+                # Docker 环境 + Xvfb：使用非 headless 模式（虚拟显示）
+                logger.info(f"Docker 环境 (DISPLAY={os.environ.get('DISPLAY')})：使用 Xvfb 虚拟显示")
+                browser = await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+            elif self.is_docker:
+                # Docker 环境无 Xvfb：尝试 headless 模式
+                logger.info("Docker 环境：使用 headless 模式")
+                browser = await playwright_instance.chromium.launch(
+                    headless=True,
+                    args=browser_args
+                )
+            else:
+                # 本地环境：使用非 headless 模式，窗口移到屏幕外
+                logger.info("本地环境：使用非 headless 模式")
+                browser_args.append('--window-position=-10000,-10000')
+                browser = await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+
+            # 创建一个带有美国地区伪装的浏览器上下文
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                locale='en-US',
+                timezone_id='America/New_York',
+                # 设置地理位置为美国
+                geolocation={'latitude': 40.7128, 'longitude': -74.0060},
+                permissions=['geolocation']
+            )
+
+            # 移除 webdriver 标记
+            await context.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            ''')
+
+            page = await context.new_page()
+            page.set_default_timeout(90000)  # 90秒超时
+
+            # 监听网络请求，拦截库存API响应
+            stock_data = {}
+
+            async def handle_response(response):
+                nonlocal stock_data
+                if 'getVariantStockStatus' in response.url:
+                    try:
+                        data = await response.json()
+                        # 提取 variantStockStatuses 数组并转换为字典
+                        statuses = data.get('result', {}).get('data', {}).get('json', {}).get('variantStockStatuses', [])
+                        stock_data = {item['variantSku']: {'stockStatus': item['stockStatus']} for item in statuses}
+                        logger.info(f"捕获到库存API响应: {len(stock_data)} 个变体")
+                    except Exception as e:
+                        logger.warning(f"解析库存API响应失败: {e}")
+
+            page.on('response', handle_response)
+
+            logger.info("正在加载页面...")
+            # 使用 domcontentloaded 等待策略
+            await page.goto(product_url, wait_until='domcontentloaded', timeout=60000)
+
+            # 等待 __NEXT_DATA__ 元素出现
+            try:
+                await page.wait_for_selector('#__NEXT_DATA__', state='attached', timeout=10000)
+                logger.info("检测到 __NEXT_DATA__ 元素")
+            except Exception:
+                logger.warning("未检测到 __NEXT_DATA__ 元素，继续尝试...")
+
+            # 等待页面基本稳定
+            await asyncio.sleep(3)
+
+            # 尝试从页面获取数据
+            logger.info("尝试从页面提取产品数据...")
+            product_data = await page.evaluate('''() => {
+                // 方法1: 从 __NEXT_DATA__ 获取
+                const nextData = document.getElementById('__NEXT_DATA__');
+                if (nextData) {
+                    try {
+                        const data = JSON.parse(nextData.textContent);
+                        const product = data?.props?.pageProps?.product;
+                        if (product) {
+                            if (typeof product === 'string') {
+                                return JSON.parse(product);
+                            }
+                            return product;
+                        }
+                    } catch (e) {
+                        console.error('解析 __NEXT_DATA__ 失败:', e);
+                    }
+                }
+
+                // 方法2: 从 window 对象获取
+                if (window.__NUXT__) {
+                    return window.__NUXT__?.data?.product || null;
+                }
+
+                // 方法3: 尝试从页面结构获取
+                const productInfo = {
+                    name: document.querySelector('h1')?.textContent?.trim() || '',
+                    variants: []
+                };
+
+                // 获取尺寸按钮
+                const sizeButtons = document.querySelectorAll('[data-testid="size-selector"] button, .size-selector button');
+                sizeButtons.forEach(btn => {
+                    productInfo.variants.push({
+                        size: btn.textContent?.trim(),
+                        available: !btn.disabled && !btn.classList.contains('out-of-stock')
+                    });
+                });
+
+                return productInfo.name ? productInfo : null;
+            }''')
+
+            if not product_data and not stock_data:
+                logger.warning("无法从页面获取数据，尝试等待更长时间...")
+                await asyncio.sleep(5)
+
+                # 再次尝试获取
+                product_data = await page.evaluate('''() => {
+                    const nextData = document.getElementById('__NEXT_DATA__');
+                    if (nextData) {
+                        try {
+                            const data = JSON.parse(nextData.textContent);
+                            const product = data?.props?.pageProps?.product;
+                            if (typeof product === 'string') {
+                                return JSON.parse(product);
+                            }
+                            return product;
+                        } catch (e) {}
+                    }
+                    return null;
+                }''')
+
+            # 获取当前URL以检查是否被重定向
+            current_url = page.url
+            logger.info(f"当前页面URL: {current_url}")
+
+            if 'arcteryx.com/cn' in current_url:
+                logger.warning("页面被重定向到中国站点，可能需要VPN访问美国站")
+
+            # 构建库存信息
+            variants = []
+            product_name = ''
+
+            if product_data:
+                product_name = product_data.get('name', '')
+
+                # 构建尺寸映射 - 处理不同的数据结构
+                size_options = product_data.get('sizeOptions', {})
+                if isinstance(size_options, dict):
+                    options_list = size_options.get('options', [])
+                elif isinstance(size_options, list):
+                    options_list = size_options
+                else:
+                    options_list = []
+
+                size_map = {}
+                for opt in options_list:
+                    if isinstance(opt, dict):
+                        size_map[opt.get('value', '')] = opt.get('label', '')
+
+                # 优先使用捕获的API数据
+                if stock_data:
+                    for variant_sku, stock_info in stock_data.items():
+                        stock_status = stock_info.get('stockStatus', 'OutOfStock')
+                        size = 'Unknown'
+                        for variant in product_data.get('variants', []):
+                            if variant.get('id') == variant_sku:
+                                size_id = variant.get('sizeId', '')
+                                size = size_map.get(size_id, size_id)
+                                break
+
+                        variants.append(VariantStock(
+                            variant_sku=variant_sku,
+                            size=size,
+                            stock_status=stock_status
+                        ))
+                else:
+                    # 使用页面数据
+                    for variant in product_data.get('variants', []):
+                        variant_sku = variant.get('id', '')
+                        size_id = variant.get('sizeId', '')
+                        size = size_map.get(size_id, size_id)
+                        stock_status = variant.get('stockStatus', 'OutOfStock')
+
+                        variants.append(VariantStock(
+                            variant_sku=variant_sku,
+                            size=size,
+                            stock_status=stock_status
+                        ))
+            elif stock_data:
+                # 只有API数据，没有产品数据
+                for variant_sku, stock_info in stock_data.items():
+                    variants.append(VariantStock(
+                        variant_sku=variant_sku,
+                        size=variant_sku[-3:],  # 使用SKU后缀作为临时尺寸标识
+                        stock_status=stock_info.get('stockStatus', 'OutOfStock')
+                    ))
+
+            if not variants:
+                logger.error("无法获取任何库存数据")
+                return None
+
+            # 按尺寸排序
+            variants.sort(key=lambda v: self.SIZE_ORDER.get(v.size, 99))
+
+            inventory = ProductInventory(
+                model_sku=model_sku,
+                name=product_name or "Unknown Product",
+                url=product_url,
+                variants=variants,
+                check_time=datetime.now()
+            )
+
+            logger.info(f"库存检查完成: {inventory.name}")
+            logger.info(f"有库存: {inventory.get_available_sizes()}")
+            logger.info(f"无库存: {inventory.get_out_of_stock_sizes()}")
+
+            return inventory
+
+        except Exception as e:
+            logger.error(f"检查库存失败: {type(e).__name__}: {e}")
+            return None
+        finally:
+            if browser:
+                await browser.close()
+            if playwright_instance:
+                await playwright_instance.stop()
+
+    def compare_inventory(
+        self,
+        old_inventory: Optional[ProductInventory],
+        new_inventory: ProductInventory
+    ) -> List[InventoryChange]:
+        """
+        比较库存变化
+
+        Args:
+            old_inventory: 上次的库存状态（可能为None）
+            new_inventory: 当前的库存状态
+
+        Returns:
+            库存变化列表
+        """
+        changes = []
+
+        if old_inventory is None:
+            # 首次检查，不产生变化记录
+            return changes
+
+        # 构建旧状态映射
+        old_status_map = {v.size: v.stock_status for v in old_inventory.variants}
+
+        # 比较每个尺寸的库存状态
+        for variant in new_inventory.variants:
+            old_status = old_status_map.get(variant.size, 'Unknown')
+            new_status = variant.stock_status
+
+            if old_status != new_status:
+                # 检查是否从无库存变为有库存
+                was_available = old_status in ['InStock', 'LowStock']
+                is_available = new_status in ['InStock', 'LowStock']
+
+                changes.append(InventoryChange(
+                    size=variant.size,
+                    old_status=old_status,
+                    new_status=new_status,
+                    became_available=not was_available and is_available
+                ))
+
+                logger.info(
+                    f"库存变化: {variant.size} - {old_status} -> {new_status}"
+                    f" ({'补货了!' if not was_available and is_available else '售罄了'})"
+                )
+
+        return changes
+
+
+# 创建抓取器单例
+inventory_scraper = ArcteryxInventoryScraper()
+
+
+async def check_product_inventory(product_url: str) -> Optional[ProductInventory]:
+    """检查商品库存（模块级函数）"""
+    return await inventory_scraper.check_inventory(product_url)

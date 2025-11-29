@@ -13,15 +13,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TZ=Asia/Shanghai
 
+# 安装 Xvfb（虚拟显示）用于绕过 headless 检测
+RUN apt-get update && apt-get install -y \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
 # 复制依赖文件
 COPY backend/requirements.txt .
 
-# 安装 Python 依赖（使用国内镜像源加速，增加超时时间）
+# 安装 Python 依赖（使用阿里云镜像源加速，增加超时时间）
 RUN pip install --no-cache-dir \
     --timeout=120 \
     --retries=5 \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    --trusted-host pypi.tuna.tsinghua.edu.cn \
+    -i https://mirrors.aliyun.com/pypi/simple \
+    --trusted-host mirrors.aliyun.com \
     -r requirements.txt
 
 # 复制后端代码
@@ -33,15 +38,18 @@ COPY frontend/dist/ ./frontend/dist/
 # 复制配置文件
 COPY config.yaml ./config.yaml
 
+# 复制库存监控脚本
+COPY run_inventory_monitor.py ./run_inventory_monitor.py
+
 # 创建数据和日志目录
 RUN mkdir -p /app/data /app/logs
 
 # 暴露端口
-EXPOSE 8080
+EXPOSE 7080
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/api/health || exit 1
+    CMD curl -f http://localhost:7080/api/health || exit 1
 
 # 启动命令
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "7080"]

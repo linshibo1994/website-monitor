@@ -63,4 +63,18 @@ export const reloadConfig = () => api.post('/settings/reload')
 
 export const healthCheck = () => api.get('/health')
 
+// ==================== 库存监控相关 ====================
+
+export const getInventoryStatus = () => api.get('/inventory/status')
+
+export const triggerInventoryCheck = () => api.post('/inventory/check')
+
+export const startInventoryScheduler = (interval = 5) => api.post('/inventory/start', null, { params: { interval_minutes: interval } })
+
+export const stopInventoryScheduler = () => api.post('/inventory/stop')
+
+export const addInventoryProduct = (data) => api.post('/inventory/products', data)
+
+export const removeInventoryProduct = (url) => api.delete('/inventory/products', { params: { url } })
+
 export default api

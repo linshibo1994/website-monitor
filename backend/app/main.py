@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.app.config import get_config
 from backend.app.database import init_db
-from backend.app.routers import products, history, settings, monitor
+from backend.app.routers import products, history, settings, monitor, inventory
 
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -66,6 +66,7 @@ app.include_router(products.router, prefix="/api/products", tags=["商品"])
 app.include_router(history.router, prefix="/api/history", tags=["历史记录"])
 app.include_router(settings.router, prefix="/api/settings", tags=["设置"])
 app.include_router(monitor.router, prefix="/api/monitor", tags=["监控"])
+app.include_router(inventory.router, prefix="/api/inventory", tags=["库存监控"])
 
 
 # 静态文件服务（前端构建后的文件）

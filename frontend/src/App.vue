@@ -18,6 +18,10 @@
           <el-icon><DataAnalysis /></el-icon>
           <span>仪表盘</span>
         </el-menu-item>
+        <el-menu-item index="/inventory">
+          <el-icon><Monitor /></el-icon>
+          <span>库存监控</span>
+        </el-menu-item>
         <el-menu-item index="/products">
           <el-icon><Goods /></el-icon>
           <span>商品列表</span>
@@ -73,6 +77,7 @@ const activeMenu = computed(() => route.path)
 const currentPageTitle = computed(() => {
   const titles = {
     '/': '仪表盘',
+    '/inventory': '库存监控',
     '/products': '商品列表',
     '/history': '历史记录',
     '/settings': '系统设置'

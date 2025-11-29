@@ -6,6 +6,7 @@
 #   查看日志:   docker compose logs -f
 #   停止服务:   docker compose down
 #   执行检测:   docker compose exec monitor python -m backend.app.services.monitor --once
+#   库存检查:   docker compose exec inventory-monitor python run_inventory_monitor.py --once
 
 services:
   monitor:
@@ -15,7 +16,7 @@ services:
     container_name: arcteryx-monitor
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "7080:7080"
     volumes:
       # 持久化数据库和日志
       - ./data:/app/data
@@ -25,7 +26,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:7080/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -46,6 +47,34 @@ services:
       - TZ=Asia/Shanghai
     # 启动守护进程模式
     command: ["python", "-m", "backend.app.services.monitor", "--daemon"]
+    depends_on:
+      monitor:
+        condition: service_healthy
+
+  # Arc'teryx 官网库存监控服务（监控指定商品的尺寸库存变化）
+  inventory-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arcteryx-inventory-monitor
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config.yaml:/app/config.yaml:ro
+      # 挂载库存监控脚本
+      - ./run_inventory_monitor.py:/app/run_inventory_monitor.py:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - DISPLAY=:99
+    # 使用 xvfb-run 运行以支持非 headless 浏览器
+    # 每5分钟检查一次库存
+    command: >
+      bash -c "
+        Xvfb :99 -screen 0 1920x1080x24 &
+        sleep 2
+        python run_inventory_monitor.py --daemon --interval 5
+      "
     depends_on:
       monitor:
         condition: service_healthy

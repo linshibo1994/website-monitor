@@ -8,6 +8,12 @@ const routes = [
     meta: { title: '仪表盘' }
   },
   {
+    path: '/inventory',
+    name: 'Inventory',
+    component: () => import('@/views/Inventory.vue'),
+    meta: { title: '库存监控' }
+  },
+  {
     path: '/products',
     name: 'Products',
     component: () => import('@/views/Products.vue'),

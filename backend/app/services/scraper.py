@@ -176,15 +176,41 @@ class ScheelsScraper:
 
             # 使用实际获取的商品数量作为最终结果
             actual_count = len(products)
+            duration = (datetime.now() - start_time).total_seconds()
 
             if actual_count != expected_total:
                 logger.warning(f"商品数量不一致: 页面显示={expected_total}, 实际获取={actual_count}")
+
+                # 如果实际获取数量为0但页面显示有商品，认为抓取失败
+                if actual_count == 0 and expected_total > 0:
+                    error_msg = f"抓取异常: 页面显示 {expected_total} 个商品，但实际获取 0 个"
+                    logger.error(error_msg)
+                    return ScrapeResult(
+                        success=False,
+                        total_count=0,
+                        products=[],
+                        detection_method="product_extraction_failed",
+                        error_message=error_msg,
+                        duration_seconds=duration
+                    )
+
+                # 如果实际数量远低于页面显示（低于50%），也认为抓取有问题
+                if expected_total > 0 and actual_count < expected_total * 0.5:
+                    error_msg = f"抓取异常: 页面显示 {expected_total} 个商品，但只获取到 {actual_count} 个（低于50%）"
+                    logger.error(error_msg)
+                    return ScrapeResult(
+                        success=False,
+                        total_count=actual_count,
+                        products=products,
+                        detection_method="incomplete_extraction",
+                        error_message=error_msg,
+                        duration_seconds=duration
+                    )
+
                 # 以实际获取的商品数量为准（更准确）
                 if actual_count > 0:
                     total_count = actual_count
                     method = "product_list_actual"
-
-            duration = (datetime.now() - start_time).total_seconds()
 
             logger.info(f"单次抓取完成: 总数={total_count}, 商品详情={len(products)}条, 耗时={duration:.2f}秒")
 
