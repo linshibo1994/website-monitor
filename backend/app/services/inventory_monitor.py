@@ -25,6 +25,9 @@ from .notifier import email_notifier
 class InventoryMonitorService:
     """库存监控服务"""
 
+    # 上架确认所需的连续检测次数
+    LAUNCH_CONFIRM_COUNT = 2
+
     def __init__(self):
         self.config = get_config()
         self.scheduler: Optional[AsyncIOScheduler] = None
@@ -36,6 +39,12 @@ class InventoryMonitorService:
 
         # 上次检查的库存状态（product_url -> ProductInventory）
         self.last_inventory: Dict[str, ProductInventory] = {}
+
+        # 上架确认计数器（url -> 连续检测到上架的次数）
+        self.launch_confirm_counter: Dict[str, int] = {}
+
+        # 已发送上架通知的商品（避免重复发送）
+        self.launch_notified: set = set()
 
         # 状态文件路径
         self.state_file = Path(__file__).parent.parent.parent.parent / 'data' / 'inventory_state.json'
@@ -153,23 +162,61 @@ class InventoryMonitorService:
                 # 获取旧库存状态
                 old_inventory = self.last_inventory.get(url)
 
-                # 检测状态变化（coming_soon -> available）
-                if old_inventory and old_inventory.is_coming_soon() and new_inventory.is_available():
-                    logger.info(f"检测到商品上架: {new_inventory.name}")
-                    notification_sent = self._send_launch_notification(new_inventory)
-                    if notification_sent:
-                        results['notifications_sent'] += 1
-                        results['changes_detected'] += 1
+                # 检测状态变化（coming_soon -> available）- 使用连续确认机制
+                if new_inventory.is_coming_soon():
+                    # 仍然是 Coming Soon，重置确认计数器
+                    self.launch_confirm_counter[url] = 0
+                    logger.info(f"商品仍为 Coming Soon: {new_inventory.name}")
                 elif new_inventory.is_available():
+                    # 检查是否需要发送上架通知
+                    if url not in self.launch_notified:
+                        # 检查旧状态是否为 Coming Soon
+                        was_coming_soon = old_inventory and old_inventory.is_coming_soon()
+
+                        if was_coming_soon or url in self.launch_confirm_counter:
+                            # 增加确认计数
+                            self.launch_confirm_counter[url] = self.launch_confirm_counter.get(url, 0) + 1
+                            confirm_count = self.launch_confirm_counter[url]
+
+                            logger.info(f"商品上架确认中: {new_inventory.name} ({confirm_count}/{self.LAUNCH_CONFIRM_COUNT})")
+
+                            # 检查是否达到确认次数
+                            if confirm_count >= self.LAUNCH_CONFIRM_COUNT:
+                                # 额外验证：确保有库存或者不再显示 Coming Soon 标记
+                                has_stock = len(new_inventory.get_available_sizes()) > 0
+
+                                if has_stock:
+                                    logger.info(f"商品上架已确认: {new_inventory.name}，有库存尺寸: {new_inventory.get_available_sizes()}")
+                                    notification_sent = self._send_launch_notification(new_inventory)
+                                    if notification_sent:
+                                        results['notifications_sent'] += 1
+                                        results['changes_detected'] += 1
+                                        self.launch_notified.add(url)
+                                        del self.launch_confirm_counter[url]
+                                else:
+                                    logger.warning(f"商品标记为上架但无任何库存，暂不发送通知: {new_inventory.name}")
+                                    # 重置计数器，等待有库存时再确认
+                                    self.launch_confirm_counter[url] = 0
+
                     # 正常商品，比较库存变化
                     changes = scraper.compare_inventory(old_inventory, new_inventory)
 
+                    # 记录所有变化（调试用）
+                    if changes:
+                        logger.debug(f"检测到 {len(changes)} 个库存变化（过滤前）: "
+                                    f"{[(c.size, c.old_status, c.new_status) for c in changes]}")
+
                     # 过滤目标尺寸的变化
                     if target_sizes:
+                        original_count = len(changes)
                         changes = [c for c in changes if c.size in target_sizes]
+                        if original_count > 0:
+                            logger.info(f"目标尺寸过滤: {original_count} -> {len(changes)} 个变化 "
+                                       f"(目标尺寸: {target_sizes})")
 
                     if changes:
                         results['changes_detected'] += len(changes)
+                        logger.info(f"有效库存变化: {[(c.size, c.old_status + '->' + c.new_status, '补货' if c.became_available else '售罄') for c in changes]}")
 
                         # 检查是否有补货
                         restocked_sizes = [c.size for c in changes if c.became_available]
@@ -183,6 +230,8 @@ class InventoryMonitorService:
                             )
                             if notification_sent:
                                 results['notifications_sent'] += 1
+                        else:
+                            logger.info(f"库存变化为售罄，不发送通知")
 
                 # 更新状态
                 self.last_inventory[url] = new_inventory

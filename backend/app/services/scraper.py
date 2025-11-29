@@ -194,9 +194,9 @@ class ScheelsScraper:
                         duration_seconds=duration
                     )
 
-                # 如果实际数量远低于页面显示（低于50%），也认为抓取有问题
-                if expected_total > 0 and actual_count < expected_total * 0.5:
-                    error_msg = f"抓取异常: 页面显示 {expected_total} 个商品，但只获取到 {actual_count} 个（低于50%）"
+                # 如果实际数量远低于页面显示（低于90%），也认为抓取有问题
+                if expected_total > 0 and actual_count < expected_total * 0.9:
+                    error_msg = f"抓取异常: 页面显示 {expected_total} 个商品，但只获取到 {actual_count} 个（低于90%）"
                     logger.error(error_msg)
                     return ScrapeResult(
                         success=False,
