@@ -2,6 +2,8 @@
   "name": "arcteryx-monitor-frontend",
   "version": "1.0.0",
   "description": "Arc'teryx 商品监控系统前端",
+  "author": "linshibo",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

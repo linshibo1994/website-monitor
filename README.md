@@ -1,6 +1,6 @@
 # 🏔️ Arc'teryx 商品监控系统
 
-监控 SCHEELS 网站 Arc'teryx（始祖鸟）品牌商品数量变化，当商品新增或下架时自动发送邮件通知。
+监控 Arc'teryx（始祖鸟）商品库存变化，支持官网单品库存监控和 SCHEELS 经销商商品数量监控。当库存变化（补货/售罄/上架）时自动发送邮件通知。
 
 ## 📦 部署方式
 
@@ -11,17 +11,29 @@
 
 ## ✨ 功能特性
 
+### 🎯 Arc'teryx 官网库存监控（新功能）
+
+- **单品尺寸级监控**：精确追踪每个尺寸（XS/S/M/L/XL/XXL）的库存状态
+- **补货通知**：当目标尺寸从"无货"变为"有货"时发送邮件
+- **上架检测**：监测 "Coming Soon" 商品，正式上架时立即通知
+- **多商品支持**：可同时监控多个商品，支持指定关注的尺寸
+- **智能确认机制**：连续2次检测确认后才发送通知，避免误报
+
+### 📊 SCHEELS 商品数量监控
+
 - **三重检测机制**：确保监控数据准确可靠
   - 主方法：解析页面 "Showing X of Y" 文本
   - 备选方法：统计商品卡片数量
   - 精确方法：商品ID集合对比，识别具体变化
 - **实时监控**：每10分钟自动检测（可配置）
 - **邮件通知**：商品增加/减少时通过QQ邮箱发送通知
-- **Web管理界面**：
-  - 仪表盘：实时状态、趋势图表
-  - 商品列表：浏览、搜索、筛选商品
-  - 历史记录：查看所有变化记录
-  - 系统设置：配置监控参数和邮箱
+
+### 🖥️ Web 管理界面
+
+- 仪表盘：实时状态、趋势图表
+- 商品列表：浏览、搜索、筛选商品
+- 历史记录：查看所有变化记录
+- 系统设置：配置监控参数和邮箱
 
 ## 🛠️ 技术栈
 
@@ -44,7 +56,10 @@ website-monitor/
 │   │   ├── database.py        # 数据库连接
 │   │   ├── models/            # 数据库模型
 │   │   ├── services/          # 业务逻辑
-│   │   │   ├── scraper.py     # 网页抓取（三重检测）
+│   │   │   ├── inventory_scraper.py   # Arc'teryx官网库存抓取
+│   │   │   ├── inventory_monitor.py   # 库存监控服务
+│   │   │   ├── scheels_scraper.py     # SCHEELS网页抓取
+│   │   │   ├── scraper.py     # 通用抓取器
 │   │   │   ├── storage.py     # 数据存储
 │   │   │   ├── notifier.py    # 邮件通知
 │   │   │   └── monitor.py     # 监控调度
@@ -61,7 +76,8 @@ website-monitor/
 │   └── vite.config.js
 │
 ├── data/                       # 数据目录（自动创建）
-│   └── monitor.db             # SQLite 数据库
+│   ├── monitor.db             # SQLite 数据库
+│   └── inventory_state.json   # 库存监控状态
 ├── logs/                       # 日志目录（自动创建）
 │
 ├── config.yaml                 # 配置文件（需手动创建）
@@ -313,6 +329,49 @@ npm run dev
 | 历史记录 | `/history` | 查看检测历史、变化详情 |
 | 系统设置 | `/settings` | 修改配置、测试邮件 |
 
+### 🎯 库存监控 API（Arc'teryx 官网）
+
+库存监控服务提供以下 API 接口：
+
+**添加监控商品**
+```bash
+# 监控所有尺寸
+curl -X POST http://localhost:8080/api/inventory/products \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://arcteryx.com/us/en/shop/mens/beta-sl-jacket-9685",
+    "name": "Beta SL Jacket"
+  }'
+
+# 只监控特定尺寸（如 M 和 L）
+curl -X POST http://localhost:8080/api/inventory/products \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://arcteryx.com/us/en/shop/mens/beta-sl-jacket-9685",
+    "name": "Beta SL Jacket",
+    "target_sizes": ["M", "L"]
+  }'
+```
+
+**查看监控状态**
+```bash
+curl http://localhost:8080/api/inventory/status
+```
+
+**手动执行一次库存检查**
+```bash
+curl -X POST http://localhost:8080/api/inventory/check
+```
+
+**移除监控商品**
+```bash
+curl -X DELETE "http://localhost:8080/api/inventory/products?url=https://arcteryx.com/..."
+```
+
+**支持的 URL 格式**：
+- Arc'teryx 官网: `https://arcteryx.com/us/en/shop/...`
+- SCHEELS: `https://www.scheels.com/...`
+
 ## ⚙️ 配置说明
 
 `config.yaml` 完整配置项：
@@ -461,6 +520,13 @@ Docker 用户需要重启服务：`docker compose restart`
 
 ## 📝 更新日志
 
+### v1.2.0 (2024-11-30)
+- 新增 Arc'teryx 官网单品库存监控功能
+- 支持按尺寸追踪库存状态（InStock/OutOfStock）
+- 新增补货通知和上架通知
+- 优化监控稳定性，增加重试机制
+- 支持 SCHEELS 和 Arc'teryx 官网双站点监控
+
 ### v1.1.0 (2024-11-27)
 - 新增 Docker 部署支持
 - 优化文档结构
@@ -474,6 +540,12 @@ Docker 用户需要重启服务：`docker compose restart`
 ## 📄 许可证
 
 MIT License
+
+## 👤 作者
+
+**linshibo**
+
+- GitHub: [@linshibo](https://github.com/linshibo)
 
 ---
 

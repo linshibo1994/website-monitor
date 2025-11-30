@@ -1,9 +1,15 @@
 # ===========================================
 # Arc'teryx 商品监控系统 - Dockerfile
 # 使用微软官方 Playwright 镜像，已预装浏览器
+# 作者：linshibo
 # ===========================================
 
 FROM mcr.microsoft.com/playwright/python:v1.41.0-jammy
+
+# 镜像元数据
+LABEL maintainer="linshibo"
+LABEL description="Arc'teryx 商品监控系统"
+LABEL version="1.2.0"
 
 # 设置工作目录
 WORKDIR /app
