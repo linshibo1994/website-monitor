@@ -1,8 +1,8 @@
 # Arc'teryx 商品监控系统 - 详细部署文档
 
-> 版本：v1.2.0
+> 版本：v1.3.0
 > 作者：linshibo
-> 更新日期：2024-11-30
+> 更新日期：2025-12-01
 
 ---
 
@@ -136,29 +136,138 @@ sudo usermod -aG docker $USER
 ```
 
 #### Windows
-1. 下载 Docker Desktop: https://www.docker.com/products/docker-desktop/
-2. 运行安装程序
-3. 启用 WSL 2（如果提示）
-4. 重启电脑
+
+> **适用于**：Windows 10（版本 2004 及以上）、Windows 11
+
+##### 前置要求
+
+| 要求 | 说明 |
+|------|------|
+| 操作系统 | Windows 10 版本 2004+ 或 Windows 11 |
+| 硬件虚拟化 | BIOS 中启用 VT-x/AMD-V |
+| WSL 2 | Windows Subsystem for Linux 2 |
+| 内存 | 至少 4GB RAM |
+
+##### 步骤 1：启用 WSL 2
+
+以**管理员身份**打开 PowerShell，执行：
+
+```powershell
+# 启用 WSL 功能
+wsl --install
+
+# 如果已安装 WSL，确保更新到 WSL 2
+wsl --update
+wsl --set-default-version 2
+
+# 查看 WSL 状态
+wsl --status
+```
+
+> **注意**：首次安装 WSL 后需要重启电脑。
+
+##### 步骤 2：下载并安装 Docker Desktop
+
+1. 访问 Docker 官网下载页面：https://www.docker.com/products/docker-desktop/
+2. 点击 **Download for Windows** 下载安装程序
+3. 运行 `Docker Desktop Installer.exe`
+4. 安装选项中确保勾选：
+   - ✅ **Use WSL 2 instead of Hyper-V**（推荐）
+   - ✅ **Add shortcut to desktop**
+5. 点击 **OK** 完成安装
+6. **重启电脑**
+
+##### 步骤 3：配置 Docker Desktop
+
+1. 启动 Docker Desktop（系统托盘会显示鲸鱼图标）
+2. 等待 Docker 启动完成（图标停止动画）
+3. 点击 **Settings（设置）** → **Resources** → **WSL Integration**
+4. 确保启用了 WSL 2 集成
+5. 点击 **Apply & Restart**
+
+##### 步骤 4：验证安装
+
+打开 **PowerShell** 或 **命令提示符**：
+
+```powershell
+# 检查 Docker 版本
+docker --version
+# 期望输出: Docker version 24.x.x 或更高
+
+# 检查 Docker Compose 版本
+docker compose version
+# 期望输出: Docker Compose version v2.x.x 或更高
+
+# 运行测试容器
+docker run hello-world
+# 看到 "Hello from Docker!" 表示安装成功
+```
+
+##### Windows 常见问题
+
+| 问题 | 解决方案 |
+|------|---------|
+| "WSL 2 installation is incomplete" | 以管理员身份运行 `wsl --update` |
+| Docker 启动卡住 | 检查 BIOS 是否启用虚拟化（VT-x/AMD-V） |
+| 内存占用过高 | 创建 `%USERPROFILE%\.wslconfig` 文件限制内存 |
+| 网络问题 | 检查 Windows 防火墙设置 |
+
+**限制 WSL 内存占用**（可选）：
+
+在 `C:\Users\<你的用户名>\.wslconfig` 创建文件：
+```ini
+[wsl2]
+memory=2GB
+processors=2
+```
+
+然后在 PowerShell 中重启 WSL：
+```powershell
+wsl --shutdown
+```
 
 ### 2.3 部署步骤
 
+> **提示**：以下命令同时提供 Linux/macOS 和 Windows 两种格式，请根据您的操作系统选择对应命令。
+
 #### 步骤 1：克隆项目
+
+**Linux/macOS：**
 ```bash
 # 克隆仓库
 git clone https://github.com/linshibo/website-monitor.git
 cd website-monitor
+```
 
-# 或直接下载压缩包解压
+**Windows（PowerShell）：**
+```powershell
+# 克隆仓库
+git clone https://github.com/linshibo/website-monitor.git
+cd website-monitor
+
+# 如果没有安装 Git，可以从 GitHub 下载 ZIP 压缩包解压
 ```
 
 #### 步骤 2：配置文件
+
+**Linux/macOS：**
 ```bash
 # 复制配置模板
 cp config.example.yaml config.yaml
 
 # 编辑配置文件
 nano config.yaml  # 或使用 vim/vi/code 等编辑器
+```
+
+**Windows（PowerShell）：**
+```powershell
+# 复制配置模板
+copy config.example.yaml config.yaml
+
+# 使用记事本编辑（或使用 VS Code 等编辑器）
+notepad config.yaml
+# 或
+code config.yaml
 ```
 
 **必须配置的项目**：
@@ -173,6 +282,8 @@ email:
 ```
 
 #### 步骤 3：构建前端（首次部署）
+
+**Linux/macOS：**
 ```bash
 # 进入前端目录
 cd frontend
@@ -187,7 +298,26 @@ npm run build
 cd ..
 ```
 
+**Windows（PowerShell）：**
+```powershell
+# 进入前端目录
+cd frontend
+
+# 安装依赖（如未安装 Node.js，请先从 https://nodejs.org 下载安装）
+npm install
+
+# 构建生产版本
+npm run build
+
+# 返回项目根目录
+cd ..
+```
+
+> **Windows 注意**：如果提示 npm 命令不存在，请确保已安装 Node.js 并重启 PowerShell。
+
 #### 步骤 4：构建并启动 Docker 服务
+
+**Linux/macOS/Windows（通用）：**
 ```bash
 # 构建镜像并启动所有服务（首次需要下载约 1.5GB 镜像）
 docker compose up -d --build
@@ -196,7 +326,11 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
+> **Windows 提示**：确保 Docker Desktop 已启动（系统托盘可见鲸鱼图标）后再执行上述命令。
+
 #### 步骤 5：验证部署
+
+**Linux/macOS：**
 ```bash
 # 检查容器状态
 docker compose ps
@@ -214,6 +348,31 @@ curl http://localhost:7080/api/health
 # 查看实时日志
 docker compose logs -f
 ```
+
+**Windows（PowerShell）：**
+```powershell
+# 检查容器状态
+docker compose ps
+
+# 期望输出类似：
+# NAME                      STATUS          PORTS
+# arcteryx-monitor          Up (healthy)    0.0.0.0:7080->7080/tcp
+# arcteryx-scheduler        Up
+# arcteryx-inventory-monitor Up
+
+# 检查 API 健康状态（使用 PowerShell 命令）
+Invoke-WebRequest -Uri http://localhost:7080/api/health | Select-Object -ExpandProperty Content
+# 或使用浏览器直接访问：http://localhost:7080/api/health
+
+# 查看实时日志
+docker compose logs -f
+
+# 按 Ctrl+C 停止查看日志
+```
+
+**Windows 访问 Web 界面**：
+- 打开浏览器，访问 http://localhost:7080
+- 如果无法访问，检查 Windows 防火墙是否阻止了 7080 端口
 
 ### 2.4 Docker 服务架构
 
@@ -641,6 +800,86 @@ sudo ufw status
 sudo ufw allow 7080
 ```
 
+#### Windows Docker 相关
+
+**问题：Docker Desktop 无法启动**
+```powershell
+# 1. 检查 WSL 2 是否正确安装
+wsl --status
+
+# 2. 重新安装 WSL 2
+wsl --update
+
+# 3. 检查 Hyper-V 服务（管理员 PowerShell）
+Get-Service vmcompute | Start-Service
+
+# 4. 重启 Docker Desktop 服务
+Restart-Service com.docker.service
+
+# 5. 如果以上都无效，尝试重启电脑
+```
+
+**问题：WSL 2 相关错误**
+```powershell
+# 错误："Please enable the Virtual Machine Platform Windows feature"
+# 以管理员身份运行 PowerShell：
+dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+
+# 然后重启电脑
+
+# 错误："WSL 2 requires an update to its kernel component"
+# 下载并安装 WSL 2 内核更新包：
+# https://aka.ms/wsl2kernel
+```
+
+**问题：Windows 端口被占用**
+```powershell
+# 查看 7080 端口占用情况
+netstat -ano | findstr :7080
+
+# 找到占用进程的 PID（最后一列数字），然后结束进程
+taskkill /PID <进程ID> /F
+
+# 或者查看哪个程序占用了端口
+Get-Process -Id (Get-NetTCPConnection -LocalPort 7080).OwningProcess
+```
+
+**问题：Windows 防火墙阻止访问**
+```powershell
+# 以管理员身份运行 PowerShell，添加防火墙规则
+New-NetFirewallRule -DisplayName "Docker Monitor Port 7080" -Direction Inbound -LocalPort 7080 -Protocol TCP -Action Allow
+
+# 或者通过图形界面：
+# 1. 打开"Windows 安全中心" → "防火墙和网络保护"
+# 2. 点击"高级设置"
+# 3. 选择"入站规则" → "新建规则"
+# 4. 选择"端口" → "TCP" → 输入 7080 → 允许连接
+```
+
+**问题：Docker 镜像拉取缓慢（中国大陆）**
+
+在 Docker Desktop 中配置镜像加速：
+1. 打开 Docker Desktop → **Settings** → **Docker Engine**
+2. 在 JSON 配置中添加镜像加速地址：
+```json
+{
+  "registry-mirrors": [
+    "https://docker.mirrors.ustc.edu.cn",
+    "https://hub-mirror.c.163.com"
+  ]
+}
+```
+3. 点击 **Apply & Restart**
+
+**问题：Docker 容器内时区不正确**
+
+在 `docker-compose.yml` 中添加时区配置（已默认配置）：
+```yaml
+environment:
+  - TZ=Asia/Shanghai
+```
+
 #### 本地部署相关
 
 **问题：Playwright 浏览器安装失败**
@@ -774,4 +1013,4 @@ website-monitor/
 
 **文档维护**：linshibo
 
-**最后更新**：2024-11-30
+**最后更新**：2025-12-01
