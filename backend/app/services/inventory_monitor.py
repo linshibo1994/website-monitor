@@ -90,7 +90,8 @@ class InventoryMonitorService:
         self,
         url: str,
         name: str = "",
-        target_sizes: Optional[List[str]] = None
+        target_sizes: Optional[List[str]] = None,
+        target_colors: Optional[List[str]] = None
     ):
         """
         添加监控商品
@@ -99,6 +100,7 @@ class InventoryMonitorService:
             url: 商品URL
             name: 商品名称（可选）
             target_sizes: 要监控的尺寸列表（如 ['S', 'M']），为空则监控所有尺寸
+            target_colors: 要监控的颜色列表（如 ['Black', 'Void']），为空则监控所有颜色
         """
         # 检查是否已存在
         for product in self.monitored_products:
@@ -106,6 +108,7 @@ class InventoryMonitorService:
                 # 更新配置
                 product['name'] = name or product.get('name', '')
                 product['target_sizes'] = target_sizes or product.get('target_sizes', [])
+                product['target_colors'] = target_colors or product.get('target_colors', [])
                 logger.info(f"更新监控商品: {url}")
                 self._save_state()
                 return
@@ -114,9 +117,10 @@ class InventoryMonitorService:
         self.monitored_products.append({
             'url': url,
             'name': name,
-            'target_sizes': target_sizes or []  # 空列表表示监控所有尺寸
+            'target_sizes': target_sizes or [],  # 空列表表示监控所有尺寸
+            'target_colors': target_colors or []  # 空列表表示监控所有颜色
         })
-        logger.info(f"添加监控商品: {url}, 目标尺寸: {target_sizes or '全部'}")
+        logger.info(f"添加监控商品: {url}, 目标尺寸: {target_sizes or '全部'}, 目标颜色: {target_colors or '全部'}")
         self._save_state()
 
     def remove_product(self, url: str):
@@ -143,6 +147,7 @@ class InventoryMonitorService:
         for product_config in self.monitored_products:
             url = product_config['url']
             target_sizes = product_config.get('target_sizes', [])
+            target_colors = product_config.get('target_colors', [])
 
             try:
                 # 根据 URL 选择对应的爬虫
@@ -213,6 +218,14 @@ class InventoryMonitorService:
                         if original_count > 0:
                             logger.info(f"目标尺寸过滤: {original_count} -> {len(changes)} 个变化 "
                                        f"(目标尺寸: {target_sizes})")
+
+                    # 过滤目标颜色的变化
+                    if target_colors:
+                        original_count = len(changes)
+                        changes = [c for c in changes if c.color_name in target_colors]
+                        if original_count > 0:
+                            logger.info(f"目标颜色过滤: {original_count} -> {len(changes)} 个变化 "
+                                       f"(目标颜色: {target_colors})")
 
                     if changes:
                         results['changes_detected'] += len(changes)
@@ -510,6 +523,7 @@ class InventoryMonitorService:
                     "url": p['url'],
                     "name": p.get('name', ''),
                     "target_sizes": p.get('target_sizes', []),
+                    "target_colors": p.get('target_colors', []),
                     "last_available": self.last_inventory.get(p['url'], ProductInventory(
                         model_sku='', name='', url='', variants=[], check_time=datetime.now()
                     )).get_available_sizes() if p['url'] in self.last_inventory else []

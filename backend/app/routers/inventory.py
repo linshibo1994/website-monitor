@@ -19,6 +19,7 @@ class VariantInfo(BaseModel):
     size: str
     stock_status: str
     is_available: bool
+    color_name: str = ""
 
 
 class ProductInventoryInfo(BaseModel):
@@ -26,6 +27,7 @@ class ProductInventoryInfo(BaseModel):
     url: str
     name: str
     target_sizes: List[str]
+    target_colors: List[str] = []
     variants: List[VariantInfo]
     last_check_time: Optional[str] = None
     status: str = "available"  # available / coming_soon / unavailable
@@ -44,6 +46,7 @@ class AddProductRequest(BaseModel):
     url: str
     name: str = ""
     target_sizes: List[str] = []
+    target_colors: List[str] = []
 
 
 class MessageResponse(BaseModel):
@@ -80,13 +83,15 @@ async def get_inventory_status():
                     variants.append(VariantInfo(
                         size=v.size,
                         stock_status=v.stock_status,
-                        is_available=v.is_available()
+                        is_available=v.is_available(),
+                        color_name=v.color_name
                     ))
 
             products.append(ProductInventoryInfo(
                 url=url,
                 name=p.get('name', '') or (inventory.name if inventory else '未知商品'),
                 target_sizes=p.get('target_sizes', []),
+                target_colors=p.get('target_colors', []),
                 variants=variants,
                 last_check_time=inventory.check_time.isoformat() if inventory else None,
                 status=inventory.status if inventory else 'available'
@@ -135,7 +140,8 @@ async def add_product(request: AddProductRequest):
         inventory_monitor_service.add_product(
             url=request.url,
             name=request.name,
-            target_sizes=request.target_sizes
+            target_sizes=request.target_sizes,
+            target_colors=request.target_colors
         )
         return MessageResponse(
             success=True,

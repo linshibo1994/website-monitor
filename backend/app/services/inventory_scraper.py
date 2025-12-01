@@ -21,6 +21,8 @@ class VariantStock:
     variant_sku: str      # 变体SKU
     size: str             # 尺寸
     stock_status: str     # 库存状态: InStock / OutOfStock / LowStock
+    color_id: str = ""    # 颜色ID
+    color_name: str = ""  # 颜色名称（如 Black, Void 等）
 
     def is_available(self) -> bool:
         """是否有库存"""
@@ -72,6 +74,7 @@ class InventoryChange:
     old_status: str              # 旧状态
     new_status: str              # 新状态
     became_available: bool       # 是否变为有库存
+    color_name: str = ""         # 颜色名称
 
 
 class ArcteryxInventoryScraper:
@@ -346,16 +349,23 @@ class ArcteryxInventoryScraper:
                     for variant_sku, stock_info in stock_data.items():
                         stock_status = stock_info.get('stockStatus', 'OutOfStock')
                         size = 'Unknown'
+                        color_id = ''
+                        color_name = ''
                         for variant in product_data.get('variants', []):
                             if variant.get('id') == variant_sku:
                                 size_id = variant.get('sizeId', '')
                                 size = size_map.get(size_id, size_id)
+                                # 提取颜色信息
+                                color_id = str(variant.get('colorId', ''))
+                                color_name = variant.get('colorName', '')
                                 break
 
                         variants.append(VariantStock(
                             variant_sku=variant_sku,
                             size=size,
-                            stock_status=stock_status
+                            stock_status=stock_status,
+                            color_id=color_id,
+                            color_name=color_name
                         ))
                 else:
                     # 使用页面数据
@@ -364,11 +374,16 @@ class ArcteryxInventoryScraper:
                         size_id = variant.get('sizeId', '')
                         size = size_map.get(size_id, size_id)
                         stock_status = variant.get('stockStatus', 'OutOfStock')
+                        # 提取颜色信息
+                        color_id = str(variant.get('colorId', ''))
+                        color_name = variant.get('colorName', '')
 
                         variants.append(VariantStock(
                             variant_sku=variant_sku,
                             size=size,
-                            stock_status=stock_status
+                            stock_status=stock_status,
+                            color_id=color_id,
+                            color_name=color_name
                         ))
             elif stock_data:
                 # 只有API数据，没有产品数据
@@ -430,12 +445,13 @@ class ArcteryxInventoryScraper:
             # 首次检查，不产生变化记录
             return changes
 
-        # 构建旧状态映射
-        old_status_map = {v.size: v.stock_status for v in old_inventory.variants}
+        # 构建旧状态映射，使用 (颜色, 尺寸) 作为 key
+        old_status_map = {(v.color_name, v.size): v.stock_status for v in old_inventory.variants}
 
-        # 比较每个尺寸的库存状态
+        # 比较每个变体的库存状态
         for variant in new_inventory.variants:
-            old_status = old_status_map.get(variant.size, 'Unknown')
+            key = (variant.color_name, variant.size)
+            old_status = old_status_map.get(key, 'Unknown')
             new_status = variant.stock_status
 
             if old_status != new_status:
@@ -447,11 +463,12 @@ class ArcteryxInventoryScraper:
                     size=variant.size,
                     old_status=old_status,
                     new_status=new_status,
-                    became_available=not was_available and is_available
+                    became_available=not was_available and is_available,
+                    color_name=variant.color_name
                 ))
 
                 logger.info(
-                    f"库存变化: {variant.size} - {old_status} -> {new_status}"
+                    f"库存变化: {variant.color_name} {variant.size} - {old_status} -> {new_status}"
                     f" ({'补货了!' if not was_available and is_available else '售罄了'})"
                 )
 
