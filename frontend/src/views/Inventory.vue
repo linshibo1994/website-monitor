@@ -1,262 +1,221 @@
 <template>
-  <div class="inventory-container">
-    <!-- 状态卡片 -->
-    <el-row :gutter="20" class="status-row">
+  <div class="inventory-view">
+    <!-- Overview Cards -->
+    <el-row :gutter="20" class="overview-row">
       <el-col :span="6">
-        <el-card class="status-card" shadow="hover">
-          <div class="stat-item">
-            <el-icon class="stat-icon" :style="{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }">
-              <Monitor />
-            </el-icon>
-            <div class="stat-content">
-              <div class="stat-value">{{ status.monitored_products }}</div>
-              <div class="stat-label">监控商品数</div>
-            </div>
+        <div class="stat-card">
+          <div class="icon-wrapper bg-blue">
+            <el-icon><Box /></el-icon>
           </div>
-        </el-card>
+          <div class="content">
+            <div class="value">{{ status.monitored_products }}</div>
+            <div class="label">监控商品</div>
+          </div>
+        </div>
       </el-col>
       <el-col :span="6">
-        <el-card class="status-card" shadow="hover">
-          <div class="stat-item">
-            <el-icon class="stat-icon" :style="{ background: status.is_running ? 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' : 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)' }">
-              <VideoPlay v-if="status.is_running" />
-              <VideoPause v-else />
-            </el-icon>
-            <div class="stat-content">
-              <div class="stat-value">{{ status.is_running ? '运行中' : '已停止' }}</div>
-              <div class="stat-label">监控状态</div>
-            </div>
+        <div class="stat-card">
+          <div class="icon-wrapper" :class="status.is_running ? 'bg-green' : 'bg-red'">
+            <el-icon v-if="status.is_running"><VideoPlay /></el-icon>
+            <el-icon v-else><VideoPause /></el-icon>
           </div>
-        </el-card>
+          <div class="content">
+            <div class="value">{{ status.is_running ? '运行中' : '已停止' }}</div>
+            <div class="label">监控状态</div>
+          </div>
+        </div>
       </el-col>
       <el-col :span="6">
-        <el-card class="status-card" shadow="hover">
-          <div class="stat-item">
-            <el-icon class="stat-icon" :style="{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' }">
-              <Clock />
-            </el-icon>
-            <div class="stat-content">
-              <div class="stat-value">{{ formatTime(status.last_check_time) }}</div>
-              <div class="stat-label">上次检查</div>
-            </div>
+        <div class="stat-card">
+          <div class="icon-wrapper bg-purple">
+            <el-icon><Timer /></el-icon>
           </div>
-        </el-card>
+          <div class="content">
+            <div class="value">{{ formatTime(status.last_check_time) }}</div>
+            <div class="label">上次检查</div>
+          </div>
+        </div>
       </el-col>
-      <el-col :span="6">
-        <el-card class="status-card" shadow="hover">
-          <div class="stat-item control-buttons">
-            <el-button type="primary" :loading="checking" @click="triggerCheck" :icon="Refresh">
-              立即检查
-            </el-button>
-            <el-button
-              :type="status.is_running ? 'danger' : 'success'"
-              @click="toggleScheduler"
-              :icon="status.is_running ? VideoPause : VideoPlay"
-            >
-              {{ status.is_running ? '停止监控' : '启动监控' }}
-            </el-button>
-          </div>
-        </el-card>
+      <el-col :span="6" class="actions-col">
+        <el-button 
+          type="primary" 
+          :loading="checking" 
+          @click="triggerCheck" 
+          :icon="Refresh" 
+          class="action-btn"
+        >
+          立即检查
+        </el-button>
+        <el-button
+          :type="status.is_running ? 'danger' : 'success'"
+          @click="toggleScheduler"
+          :icon="status.is_running ? VideoPause : VideoPlay"
+          class="action-btn"
+          plain
+        >
+          {{ status.is_running ? '停止' : '启动' }}
+        </el-button>
       </el-col>
     </el-row>
 
-    <!-- 商品库存卡片列表 -->
-    <div class="products-section">
-      <div class="section-header">
-        <h3><el-icon><Goods /></el-icon> 商品库存监控</h3>
-        <el-button type="primary" size="small" :icon="Plus" @click="openAddDialog">
-          添加商品
-        </el-button>
-      </div>
+    <!-- Main Table Card -->
+    <el-card class="table-card" shadow="never">
+      <template #header>
+        <div class="card-header">
+          <div class="header-title">
+            <el-icon><List /></el-icon>
+            <span>监控列表</span>
+          </div>
+          <el-button type="primary" :icon="Plus" @click="openAddDialog">
+            添加商品
+          </el-button>
+        </div>
+      </template>
 
-      <el-row :gutter="20">
-        <el-col :span="12" v-for="product in status.products" :key="product.url">
-          <el-card class="product-card" shadow="hover">
-            <template #header>
-              <div class="product-header">
-                <div class="product-info">
-                  <h4 class="product-name">{{ product.name || '未知商品' }}</h4>
-                  <div class="product-meta">
-                    <el-tag size="small" type="info">{{ getWebsiteTag(product.url) }}</el-tag>
-                    <el-tag size="small" :type="getStatusType(product.status)" effect="dark">
-                      {{ getStatusText(product.status) }}
-                    </el-tag>
-                    <span class="target-sizes" v-if="product.target_sizes.length > 0">
-                      目标尺码: <el-tag size="small" v-for="size in product.target_sizes" :key="size" type="warning">{{ size }}</el-tag>
-                    </span>
-                  </div>
-                </div>
-                <el-button
-                  type="danger"
-                  size="small"
-                  :icon="Delete"
-                  circle
-                  @click="removeProduct(product.url)"
+      <el-table 
+        :data="status.products" 
+        style="width: 100%" 
+        v-loading="loading"
+        row-key="url"
+      >
+        <el-table-column type="expand">
+          <template #default="props">
+            <div class="variants-container">
+              <div v-if="props.row.status === 'coming_soon'" class="coming-soon-alert">
+                <el-alert
+                  title="商品即将上架"
+                  type="warning"
+                  description="该商品目前标记为即将上架，正在持续监控中。"
+                  show-icon
+                  :closable="false"
                 />
               </div>
-            </template>
-
-            <!-- Coming Soon 状态显示 -->
-            <div v-if="product.status === 'coming_soon'" class="coming-soon-notice">
-              <el-icon><Clock /></el-icon>
-              <span>商品即将上架，正在监控中...</span>
+              <el-table v-else :data="props.row.variants" size="small" border>
+                <el-table-column prop="size" label="尺码" width="120" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="isTargetSize(row.size, props.row.target_sizes) ? 'warning' : 'info'" size="small">
+                      {{ row.size }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="color_name" label="颜色" width="180" show-overflow-tooltip />
+                <el-table-column prop="stock_status" label="库存状态" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="row.is_available ? 'success' : 'danger'" effect="dark" size="small">
+                      {{ row.is_available ? '有货' : '缺货' }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
             </div>
+          </template>
+        </el-table-column>
 
-            <!-- 库存状态表格 -->
-            <el-table v-else :data="product.variants" size="small" stripe>
-              <el-table-column prop="size" label="尺码" width="100" align="center">
-                <template #default="{ row }">
-                  <el-tag
-                    :type="isTargetSize(row.size, product.target_sizes) ? 'warning' : 'info'"
-                    size="small"
-                  >
-                    {{ row.size }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="stock_status" label="库存状态" align="center">
-                <template #default="{ row }">
-                  <el-tag :type="row.is_available ? 'success' : 'danger'" effect="dark">
-                    <el-icon v-if="row.is_available"><Check /></el-icon>
-                    <el-icon v-else><Close /></el-icon>
-                    {{ row.is_available ? '有货' : '缺货' }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-            </el-table>
-
-            <div class="product-footer">
-              <div class="check-time" v-if="product.last_check_time">
-                <el-icon><Clock /></el-icon>
-                检查时间: {{ formatTime(product.last_check_time) }}
-              </div>
-              <el-link :href="product.url" target="_blank" type="primary">
-                <el-icon><Link /></el-icon> 查看商品
-              </el-link>
+        <el-table-column prop="name" label="商品名称" min-width="200">
+          <template #default="{ row }">
+            <div class="product-name-cell">
+              <span class="name-text">{{ row.name || '正在获取...' }}</span>
+              <el-tag size="small" effect="plain" type="info">{{ getWebsiteTag(row.url) }}</el-tag>
             </div>
-          </el-card>
-        </el-col>
-      </el-row>
+          </template>
+        </el-table-column>
 
-      <!-- 空状态 -->
-      <el-empty v-if="status.products.length === 0" description="暂无监控商品，请添加商品开始监控" />
-    </div>
+        <el-table-column label="目标" width="200">
+          <template #default="{ row }">
+             <div class="tags-wrapper">
+               <el-tag v-for="size in row.target_sizes" :key="size" size="small" type="warning" effect="plain">{{ size }}</el-tag>
+               <span v-if="!row.target_sizes.length" class="text-gray">全尺码</span>
+             </div>
+          </template>
+        </el-table-column>
 
-    <!-- 添加商品对话框（智能解析版 + 手动兜底） -->
-    <el-dialog v-model="showAddDialog" title="添加监控商品" width="600px" @close="handleDialogClose">
-      <el-form :model="newProduct" label-width="100px">
-        <!-- 智能输入框 -->
-        <el-form-item label="商品URL/Key" required>
-          <el-input
-            v-model="newProduct.input"
-            placeholder="粘贴商品URL 或 输入商品Key"
-            @input="debounceParseInput"
-            clearable
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-          <div class="input-tips">
-            <span>支持: Arc'teryx URL/Key (如 beta-sl-jacket-9685), SCHEELS URL/Key (如 62355529822)</span>
-          </div>
-        </el-form-item>
+        <el-table-column prop="status" label="状态" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag :type="getStatusType(row.status)" effect="light">
+              {{ getStatusText(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
 
-        <!-- 解析结果展示 -->
-        <el-form-item v-if="parseResult.success || parseResult.error">
-          <div class="parse-result" :class="{ success: parseResult.success, error: !parseResult.success }">
-            <template v-if="parseResult.success">
-              <div class="parse-info">
-                <el-icon><SuccessFilled /></el-icon>
-                <span class="parse-label">识别成功</span>
+        <el-table-column label="最后更新" width="180">
+          <template #default="{ row }">
+            <span class="text-gray">{{ formatTime(row.last_check_time) }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="操作" width="150" align="right">
+          <template #default="{ row }">
+            <el-button-group>
+              <el-button link type="primary" :icon="Link" @click="openLink(row.url)">访问</el-button>
+              <el-button link type="danger" :icon="Delete" @click="removeProduct(row.url)">移除</el-button>
+            </el-button-group>
+          </template>
+        </el-table-column>
+
+        <template #empty>
+          <el-empty description="暂无监控商品" />
+        </template>
+      </el-table>
+    </el-card>
+
+    <!-- Add Product Dialog -->
+    <el-dialog v-model="showAddDialog" title="添加监控商品" width="600px" @close="handleDialogClose" destroy-on-close>
+      <el-tabs v-model="addMode" class="add-tabs">
+        <el-tab-pane label="智能解析" name="smart">
+          <div class="tab-content">
+            <el-input
+              v-model="newProduct.input"
+              placeholder="粘贴商品链接或输入 Key (例如: beta-lt-jacket)"
+              :prefix-icon="Search"
+              @input="debounceParseInput"
+              clearable
+            />
+            <div class="tip-text">支持 Arc'teryx 和 Scheels 链接/Key</div>
+
+            <div v-if="parseResult.success" class="parse-success-card">
+              <div class="header">
+                <el-icon><CircleCheckFilled /></el-icon> 识别成功
               </div>
-              <div class="parse-details">
-                <div class="detail-item">
-                  <span class="label">站点:</span>
-                  <el-tag size="small" type="primary">{{ parseResult.site_name }}</el-tag>
-                </div>
-                <div class="detail-item">
-                  <span class="label">Key:</span>
-                  <code>{{ parseResult.key }}</code>
-                </div>
-                <div class="detail-item" v-if="parseResult.categories && parseResult.categories.length > 0">
+              <div class="info-grid">
+                <div class="item"><span class="label">站点:</span> {{ parseResult.site_name }}</div>
+                <div class="item"><span class="label">Key:</span> {{ parseResult.key }}</div>
+                <div class="item full" v-if="parseResult.categories?.length">
                   <span class="label">分类:</span>
-                  <el-select v-model="newProduct.category" size="small" style="width: 120px" @change="updatePreviewUrl">
-                    <el-option
-                      v-for="cat in parseResult.categories"
-                      :key="cat.value"
-                      :label="cat.label"
-                      :value="cat.value"
-                    />
-                  </el-select>
+                  <el-radio-group v-model="newProduct.category" size="small" @change="updatePreviewUrl">
+                    <el-radio-button v-for="c in parseResult.categories" :key="c.value" :value="c.value">{{ c.label }}</el-radio-button>
+                  </el-radio-group>
                 </div>
               </div>
-              <div class="preview-url">
-                <span class="label">预览URL:</span>
-                <el-link :href="previewUrl" target="_blank" type="primary" :underline="false">
-                  {{ previewUrl }}
-                </el-link>
+              <div class="preview-link">
+                 <el-link :href="previewUrl" target="_blank" type="primary">{{ previewUrl }}</el-link>
               </div>
-            </template>
-            <template v-else>
-              <div class="parse-info">
-                <el-icon><WarningFilled /></el-icon>
-                <span class="parse-label">识别失败</span>
-              </div>
-              <div class="error-message">{{ parseResult.error }}</div>
-              <!-- 手动兜底：当自动解析失败时，显示手动选择选项 -->
-              <div class="manual-fallback" v-if="availableSites.length > 0">
-                <el-divider content-position="left">手动指定</el-divider>
-                <div class="manual-inputs">
-                  <el-select v-model="manualInput.site_id" placeholder="选择站点" size="small" style="width: 150px" @change="onManualSiteChange">
-                    <el-option
-                      v-for="site in availableSites"
-                      :key="site.site_id"
-                      :label="site.name"
-                      :value="site.site_id"
-                    />
-                  </el-select>
-                  <el-input v-model="manualInput.key" placeholder="输入商品Key" size="small" style="width: 200px; margin-left: 10px" />
-                  <el-select
-                    v-if="manualSiteCategories.length > 0"
-                    v-model="manualInput.category"
-                    placeholder="分类"
-                    size="small"
-                    style="width: 100px; margin-left: 10px"
-                  >
-                    <el-option
-                      v-for="cat in manualSiteCategories"
-                      :key="cat.value"
-                      :label="cat.label"
-                      :value="cat.value"
-                    />
-                  </el-select>
-                </div>
-                <div class="manual-tip">
-                  <span v-if="selectedSiteExample">示例 Key: {{ selectedSiteExample }}</span>
-                </div>
-              </div>
-            </template>
+            </div>
+            <div v-else-if="parseResult.error" class="parse-error-msg">
+              {{ parseResult.error }}
+            </div>
           </div>
-        </el-form-item>
+        </el-tab-pane>
+        
+        <el-tab-pane label="手动填写" name="manual">
+           <el-form label-position="top">
+             <el-form-item label="商品链接 (URL)">
+               <el-input v-model="newProduct.input" placeholder="https://..." />
+             </el-form-item>
+           </el-form>
+        </el-tab-pane>
+      </el-tabs>
 
+      <el-divider content-position="center">监控选项</el-divider>
+
+      <el-form label-width="80px">
         <el-form-item label="商品名称">
-          <el-input v-model="newProduct.name" placeholder="可选，留空则自动获取" />
+          <el-input v-model="newProduct.name" placeholder="可选，默认自动获取" />
         </el-form-item>
-
         <el-form-item label="目标尺码">
-          <el-select v-model="newProduct.target_sizes" multiple placeholder="选择要监控的尺码" style="width: 100%">
-            <el-option label="XS" value="XS" />
-            <el-option label="S" value="S" />
-            <el-option label="M" value="M" />
-            <el-option label="L" value="L" />
-            <el-option label="XL" value="XL" />
-            <el-option label="2XL" value="2XL" />
-            <el-option label="XXL" value="XXL" />
+          <el-select v-model="newProduct.target_sizes" multiple placeholder="所有尺码" style="width: 100%">
+            <el-option v-for="s in ['XS','S','M','L','XL','2XL','XXL']" :key="s" :label="s" :value="s" />
           </el-select>
-          <div class="form-tip">留空则监控所有尺码</div>
         </el-form-item>
-
         <el-form-item label="目标颜色">
           <el-select
             v-model="newProduct.target_colors"
@@ -264,26 +223,19 @@
             filterable
             allow-create
             default-first-option
-            placeholder="输入颜色名称 (如 Black, Void)"
+            placeholder="所有颜色 (支持手动输入)"
             style="width: 100%"
           >
             <el-option label="Black" value="Black" />
             <el-option label="Void" value="Void" />
-            <el-option label="Black Sapphire" value="Black Sapphire" />
           </el-select>
-          <div class="form-tip">留空则监控所有颜色，可手动输入颜色名称</div>
         </el-form-item>
       </el-form>
 
       <template #footer>
         <el-button @click="showAddDialog = false">取消</el-button>
-        <el-button
-          type="primary"
-          @click="addProduct"
-          :loading="adding"
-          :disabled="!canSubmit"
-        >
-          添加监控
+        <el-button type="primary" @click="addProduct" :loading="adding" :disabled="!canSubmit">
+          开始监控
         </el-button>
       </template>
     </el-dialog>
@@ -291,11 +243,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  Monitor, VideoPlay, VideoPause, Clock, Goods, Plus, Delete,
-  Check, Close, Link, Refresh, Search, SuccessFilled, WarningFilled
+import { 
+  Box, VideoPlay, VideoPause, Timer, Refresh, Plus, List, Link, Delete, Search, CircleCheckFilled 
 } from '@element-plus/icons-vue'
 import {
   getInventoryStatus,
@@ -304,11 +255,9 @@ import {
   stopInventoryScheduler,
   addInventoryProduct,
   removeInventoryProduct,
-  parseProductInput,
-  getInventorySites
+  parseProductInput
 } from '@/api'
 
-// 状态数据
 const status = ref({
   is_running: false,
   last_check_time: null,
@@ -316,30 +265,14 @@ const status = ref({
   products: []
 })
 
-// 加载状态
+const loading = ref(false)
 const checking = ref(false)
 const adding = ref(false)
 const showAddDialog = ref(false)
+const addMode = ref('smart')
+let refreshTimer = null
 
-// 可用站点列表（从API获取）
-const availableSites = ref([])
-
-// 解析结果
-const parseResult = ref({
-  success: false,
-  site_id: null,
-  site_name: null,
-  key: null,
-  category: null,
-  url: null,
-  error: null,
-  categories: null
-})
-
-// 预览URL（使用后端返回的URL或根据分类切换构建）
-const previewUrl = ref('')
-
-// 新商品表单
+// Add Product Form
 const newProduct = ref({
   input: '',
   name: '',
@@ -348,669 +281,284 @@ const newProduct = ref({
   target_colors: []
 })
 
-// 手动输入（兜底模式）
-const manualInput = ref({
-  site_id: '',
-  key: '',
-  category: ''
-})
+const parseResult = ref({ success: false, error: null })
+const previewUrl = ref('')
+let parseTimer = null
 
-// 定时刷新
-let refreshTimer = null
-let parseDebounceTimer = null
-let parseRequestId = 0  // 用于避免旧请求覆盖新输入
-
-// 计算手动选择的站点分类
-const manualSiteCategories = computed(() => {
-  if (!manualInput.value.site_id) return []
-  const site = availableSites.value.find(s => s.site_id === manualInput.value.site_id)
-  return site?.categories || []
-})
-
-// 计算选中站点的Key示例
-const selectedSiteExample = computed(() => {
-  if (!manualInput.value.site_id) return ''
-  const site = availableSites.value.find(s => s.site_id === manualInput.value.site_id)
-  return site?.key_example || ''
-})
-
-// 计算是否可以提交
 const canSubmit = computed(() => {
-  // 自动解析成功
-  if (parseResult.value.success) return true
-  // 手动模式：需要站点和Key
-  if (manualInput.value.site_id && manualInput.value.key) return true
-  // 至少有输入（让后端尝试解析）
-  if (newProduct.value.input.trim()) return true
-  return false
+  if (addMode.value === 'manual') return !!newProduct.value.input;
+  return parseResult.value.success || (newProduct.value.input && !parseResult.value.error);
 })
 
-// 打开添加对话框
-const openAddDialog = async () => {
-  resetForm()
-  showAddDialog.value = true
-  // 加载可用站点列表
-  await loadAvailableSites()
-}
-
-// 关闭对话框时清理
-const handleDialogClose = () => {
-  // 清理防抖定时器
-  if (parseDebounceTimer) {
-    clearTimeout(parseDebounceTimer)
-    parseDebounceTimer = null
-  }
-  // 增加请求ID，使旧请求失效
-  parseRequestId++
-}
-
-// 加载可用站点列表
-const loadAvailableSites = async () => {
-  try {
-    const response = await getInventorySites()
-    availableSites.value = response.data.sites || []
-  } catch (error) {
-    console.error('获取站点列表失败:', error)
-  }
-}
-
-// 重置表单
-const resetForm = () => {
-  newProduct.value = {
-    input: '',
-    name: '',
-    category: '',
-    target_sizes: [],
-    target_colors: []
-  }
-  parseResult.value = {
-    success: false,
-    site_id: null,
-    site_name: null,
-    key: null,
-    category: null,
-    url: null,
-    error: null,
-    categories: null
-  }
-  manualInput.value = {
-    site_id: '',
-    key: '',
-    category: ''
-  }
-  previewUrl.value = ''
-}
-
-// 智能解析输入（带防抖和请求序号）
-const debounceParseInput = () => {
-  if (parseDebounceTimer) {
-    clearTimeout(parseDebounceTimer)
-  }
-
-  parseDebounceTimer = setTimeout(async () => {
-    await parseInput()
-  }, 300)
-}
-
-// 解析输入
-const parseInput = async () => {
-  const input = newProduct.value.input.trim()
-  const currentRequestId = ++parseRequestId
-
-  if (!input) {
-    parseResult.value = {
-      success: false,
-      site_id: null,
-      site_name: null,
-      key: null,
-      category: null,
-      url: null,
-      error: null,
-      categories: null
-    }
-    previewUrl.value = ''
-    return
-  }
-
-  try {
-    const response = await parseProductInput(input)
-
-    // 检查是否是最新请求，避免旧响应覆盖新输入
-    if (currentRequestId !== parseRequestId) {
-      return
-    }
-
-    parseResult.value = response.data
-
-    // 如果解析成功，设置默认分类和预览URL
-    if (parseResult.value.success) {
-      if (parseResult.value.category) {
-        newProduct.value.category = parseResult.value.category
-      }
-      previewUrl.value = parseResult.value.url || ''
-    }
-  } catch (error) {
-    // 检查是否是最新请求
-    if (currentRequestId !== parseRequestId) {
-      return
-    }
-
-    parseResult.value = {
-      success: false,
-      error: error.response?.data?.detail || '解析失败'
-    }
-  }
-}
-
-// 当分类切换时更新预览URL
-const updatePreviewUrl = () => {
-  if (!parseResult.value.success) return
-
-  const site = availableSites.value.find(s => s.site_id === parseResult.value.site_id)
-  if (!site || !site.url_templates) {
-    previewUrl.value = parseResult.value.url || ''
-    return
-  }
-
-  const category = newProduct.value.category || parseResult.value.category
-  const template = site.url_templates[category] || site.url_templates['default'] || ''
-  if (template && parseResult.value.key) {
-    previewUrl.value = template.replace('{key}', parseResult.value.key)
-  } else {
-    previewUrl.value = parseResult.value.url || ''
-  }
-}
-
-// 手动站点切换时设置默认分类
-const onManualSiteChange = () => {
-  const site = availableSites.value.find(s => s.site_id === manualInput.value.site_id)
-  if (site) {
-    manualInput.value.category = site.default_category || ''
-  }
-}
-
-// 获取状态
+// Methods
 const fetchStatus = async () => {
   try {
-    const response = await getInventoryStatus()
-    status.value = response.data
-  } catch (error) {
-    console.error('获取库存监控状态失败:', error)
+    const res = await getInventoryStatus()
+    status.value = res.data
+  } catch (err) {
+    console.error(err)
   }
 }
 
-// 触发检查
 const triggerCheck = async () => {
   checking.value = true
   try {
-    const response = await triggerInventoryCheck()
-    ElMessage.success(`检查完成: ${response.data.products_checked} 个商品, ${response.data.changes_detected} 个变化`)
+    const res = await triggerInventoryCheck()
+    ElMessage.success(`检查完成: 变动 ${res.data.changes_detected}`)
     await fetchStatus()
-  } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '检查失败')
+  } catch (err) {
+    ElMessage.error(err.response?.data?.detail || '检查失败')
   } finally {
     checking.value = false
   }
 }
 
-// 切换调度器
 const toggleScheduler = async () => {
   try {
     if (status.value.is_running) {
       await stopInventoryScheduler()
-      ElMessage.success('库存监控已停止')
+      ElMessage.success('监控已停止')
     } else {
       await startInventoryScheduler()
-      ElMessage.success('库存监控已启动')
+      ElMessage.success('监控已启动')
     }
     await fetchStatus()
-  } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '操作失败')
+  } catch (err) {
+    ElMessage.error('操作失败')
   }
 }
 
-// 等待检查完成的辅助函数（轮询状态）
-const waitForCheckComplete = async (maxWaitSeconds = 90) => {
-  const startTime = Date.now()
-  const pollInterval = 5000 // 5秒轮询一次
-
-  while ((Date.now() - startTime) < maxWaitSeconds * 1000) {
-    await new Promise(resolve => setTimeout(resolve, pollInterval))
-    await fetchStatus()
-
-    // 检查是否可以触发新检查（不真正触发，只是试探）
-    try {
-      // 尝试触发检查来测试是否有检查在进行
-      await triggerInventoryCheck()
-      // 如果成功，说明之前的检查已完成，这次触发的检查也会更新数据
-      return true
-    } catch (error) {
-      if (error.response?.status === 409) {
-        // 仍在检查中，继续等待
-        console.log('检查进行中，等待...')
-        continue
-      }
-      // 其他错误，停止等待
-      return false
-    }
-  }
-  return false
+// Parsing
+const debounceParseInput = () => {
+  if (parseTimer) clearTimeout(parseTimer)
+  parseTimer = setTimeout(parseInput, 500)
 }
 
-// 添加商品
+const parseInput = async () => {
+  const input = newProduct.value.input.trim()
+  if (!input) {
+    parseResult.value = { success: false, error: null }
+    return
+  }
+  
+  try {
+    const res = await parseProductInput(input)
+    parseResult.value = res.data
+    if (res.data.success) {
+      previewUrl.value = res.data.url
+      if (res.data.category) newProduct.value.category = res.data.category
+    }
+  } catch (err) {
+    parseResult.value = { success: false, error: err.response?.data?.detail || '无法解析' }
+  }
+}
+
+const updatePreviewUrl = () => {
+  // Simplified update logic - mostly relies on backend parse response for now
+}
+
 const addProduct = async () => {
   adding.value = true
   try {
-    let data = {}
-
-    // 优先使用自动解析成功的结果
-    if (parseResult.value.success) {
-      data = {
-        input: newProduct.value.input,
-        name: newProduct.value.name,
-        category: newProduct.value.category,
-        target_sizes: newProduct.value.target_sizes,
-        target_colors: newProduct.value.target_colors
-      }
-    }
-    // 其次使用手动输入（显式模式）
-    else if (manualInput.value.site_id && manualInput.value.key) {
-      data = {
-        site_id: manualInput.value.site_id,
-        key: manualInput.value.key,
-        category: manualInput.value.category,
-        name: newProduct.value.name,
-        target_sizes: newProduct.value.target_sizes,
-        target_colors: newProduct.value.target_colors
-      }
-    }
-    // 最后尝试让后端解析
-    else if (newProduct.value.input.trim()) {
-      data = {
-        input: newProduct.value.input,
-        name: newProduct.value.name,
-        target_sizes: newProduct.value.target_sizes,
-        target_colors: newProduct.value.target_colors
-      }
-    } else {
-      ElMessage.warning('请输入商品URL或Key')
-      adding.value = false
-      return
-    }
-
-    await addInventoryProduct(data)
-    ElMessage.success('商品添加成功，正在获取商品信息...')
+    await addInventoryProduct({
+      input: newProduct.value.input,
+      name: newProduct.value.name,
+      category: newProduct.value.category,
+      target_sizes: newProduct.value.target_sizes,
+      target_colors: newProduct.value.target_colors
+    })
+    ElMessage.success('添加成功')
     showAddDialog.value = false
-    resetForm()
-
-    // 添加商品后，自动触发一次检查以获取商品名称和库存信息
-    try {
-      await triggerInventoryCheck()
-      ElMessage.success('商品信息已更新')
-    } catch (error) {
-      // 如果返回 409 冲突，说明有其他检查在进行，等待完成后刷新
-      if (error.response?.status === 409) {
-        ElMessage.info('有检查任务正在进行，等待完成...')
-        await waitForCheckComplete(60)
-        ElMessage.success('商品信息已更新')
-      } else {
-        console.error('自动检查失败:', error)
-      }
-    }
-
-    await fetchStatus()
-  } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '添加失败')
+    // Trigger initial check
+    triggerCheck()
+  } catch (err) {
+    ElMessage.error(err.response?.data?.detail || '添加失败')
   } finally {
     adding.value = false
   }
 }
 
-// 移除商品
 const removeProduct = async (url) => {
   try {
-    await ElMessageBox.confirm('确定要移除该商品的监控吗？', '确认', {
-      type: 'warning'
-    })
+    await ElMessageBox.confirm('确定移除该商品吗?', '警告', { type: 'warning' })
     await removeInventoryProduct(url)
-    ElMessage.success('商品已移除')
-    await fetchStatus()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.detail || '移除失败')
-    }
-  }
+    ElMessage.success('已移除')
+    fetchStatus()
+  } catch (e) {}
 }
 
-// 格式化时间
-const formatTime = (timeStr) => {
-  if (!timeStr) return '从未'
-  const date = new Date(timeStr)
-  return date.toLocaleString('zh-CN')
+const openLink = (url) => window.open(url, '_blank')
+
+// Helpers
+const formatTime = (t) => {
+  if (!t) return '从未'
+  return new Date(t).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-// 获取网站标签
 const getWebsiteTag = (url) => {
-  if (url.includes('scheels.com')) return 'Scheels'
-  if (url.includes('arcteryx.com')) return "Arc'teryx官网"
-  return '其他'
+  if (url.includes('scheels')) return 'Scheels'
+  if (url.includes('arcteryx')) return "Arc'teryx"
+  return 'Site'
 }
 
-// 判断是否是目标尺码
-const isTargetSize = (size, targetSizes) => {
-  if (!targetSizes || targetSizes.length === 0) return false
-  return targetSizes.includes(size)
+const isTargetSize = (size, targets) => {
+  if (!targets || !targets.length) return true
+  return targets.includes(size)
 }
 
-// 获取状态类型（用于标签颜色）
-const getStatusType = (status) => {
-  switch (status) {
-    case 'available': return 'success'
-    case 'coming_soon': return 'warning'
-    case 'unavailable': return 'danger'
-    default: return 'info'
-  }
-}
+const getStatusType = (s) => ({ available: 'success', coming_soon: 'warning', unavailable: 'danger' }[s] || 'info')
+const getStatusText = (s) => ({ available: '现货', coming_soon: '即将上架', unavailable: '缺货' }[s] || s)
 
-// 获取状态文本
-const getStatusText = (status) => {
-  switch (status) {
-    case 'available': return '已上架'
-    case 'coming_soon': return '即将上架'
-    case 'unavailable': return '已下架'
-    default: return '未知'
-  }
+const openAddDialog = () => {
+  newProduct.value = { input: '', name: '', category: '', target_sizes: [], target_colors: [] }
+  parseResult.value = { success: false }
+  showAddDialog.value = true
 }
+const handleDialogClose = () => {}
 
 onMounted(() => {
-  fetchStatus()
-  // 每30秒刷新一次
+  loading.value = true
+  fetchStatus().finally(() => loading.value = false)
   refreshTimer = setInterval(fetchStatus, 30000)
 })
 
 onUnmounted(() => {
-  // 清理定时器
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
-  }
-  if (parseDebounceTimer) {
-    clearTimeout(parseDebounceTimer)
-    parseDebounceTimer = null
-  }
+  if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
 
 <style scoped>
-.inventory-container {
+.inventory-view {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.overview-row {
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: #fff;
   padding: 20px;
-}
-
-.status-row {
-  margin-bottom: 20px;
-}
-
-.status-card {
-  height: 100%;
-}
-
-.stat-item {
+  border-radius: 8px;
   display: flex;
   align-items: center;
-  padding: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+  border: 1px solid #ebeef5;
 }
 
-.stat-icon {
-  width: 60px;
-  height: 60px;
+.icon-wrapper {
+  width: 48px;
+  height: 48px;
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
-  color: white;
-  margin-right: 15px;
-}
-
-.stat-content {
-  flex: 1;
-}
-
-.stat-value {
   font-size: 24px;
-  font-weight: bold;
-  color: #303133;
+  color: white;
+  margin-right: 16px;
 }
 
-.stat-label {
-  font-size: 14px;
-  color: #909399;
-  margin-top: 5px;
-}
+.bg-blue { background: linear-gradient(135deg, #1890ff, #36cfc9); }
+.bg-green { background: linear-gradient(135deg, #52c41a, #95de64); }
+.bg-red { background: linear-gradient(135deg, #ff4d4f, #ff7875); }
+.bg-purple { background: linear-gradient(135deg, #722ed1, #b37feb); }
 
-.control-buttons {
+.content .value { font-size: 20px; font-weight: 600; color: #262626; }
+.content .label { font-size: 12px; color: #8c8c8c; margin-top: 4px; }
+
+.actions-col {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px;
+  justify-content: space-between;
 }
 
-.control-buttons .el-button {
+.action-btn {
   width: 100%;
+  height: 100%;
+  margin: 0 !important;
+  margin-bottom: 10px !important;
+}
+.action-btn:last-child { margin-bottom: 0 !important; }
+
+.table-card {
+  border-radius: 8px;
 }
 
-.products-section {
-  margin-top: 20px;
-}
-
-.section-header {
+.card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.header-title {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.product-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.name-text { font-weight: 500; color: #1f1f1f; }
+
+.tags-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.text-gray { color: #909399; font-size: 13px; }
+
+.variants-container {
+  padding: 16px;
+  background-color: #fafafa;
+}
+
+.add-tabs {
   margin-bottom: 20px;
 }
 
-.section-header h3 {
-  margin: 0;
-  font-size: 18px;
-  color: #303133;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.product-card {
-  margin-bottom: 20px;
-}
-
-.product-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.product-info {
-  flex: 1;
-}
-
-.product-name {
-  margin: 0 0 8px 0;
-  font-size: 16px;
-  color: #303133;
-}
-
-.product-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.target-sizes {
-  font-size: 12px;
-  color: #909399;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.product-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 15px;
-  padding-top: 15px;
-  border-top: 1px solid #ebeef5;
-}
-
-.check-time {
-  font-size: 12px;
-  color: #909399;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.form-tip {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 5px;
-}
-
-.coming-soon-notice {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 30px 20px;
-  background: linear-gradient(135deg, #fff3cd 0%, #ffeeba 100%);
-  border-radius: 8px;
-  color: #856404;
-  font-size: 16px;
-  font-weight: 500;
-}
-
-.coming-soon-notice .el-icon {
-  font-size: 24px;
-}
-
-/* 智能解析相关样式 */
-.input-tips {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 5px;
-}
-
-.parse-result {
-  padding: 15px;
-  border-radius: 8px;
-  width: 100%;
-}
-
-.parse-result.success {
-  background: linear-gradient(135deg, #f0f9eb 0%, #e1f3d8 100%);
-  border: 1px solid #b3e19d;
-}
-
-.parse-result.error {
-  background: linear-gradient(135deg, #fef0f0 0%, #fde2e2 100%);
-  border: 1px solid #fab6b6;
-}
-
-.parse-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.parse-result.success .parse-info {
-  color: #67c23a;
-}
-
-.parse-result.error .parse-info {
-  color: #f56c6c;
-}
-
-.parse-info .el-icon {
-  font-size: 20px;
-}
-
-.parse-label {
-  font-weight: bold;
-  font-size: 14px;
-}
-
-.parse-details {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 15px;
-  margin-bottom: 10px;
-}
-
-.detail-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.detail-item .label {
-  color: #606266;
-  font-size: 13px;
-}
-
-.detail-item code {
-  background: #f5f7fa;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-family: monospace;
-  color: #409eff;
-}
-
-.preview-url {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px dashed #dcdfe6;
-}
-
-.preview-url .label {
-  color: #606266;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.preview-url .el-link {
-  word-break: break-all;
-  font-size: 12px;
-}
-
-.error-message {
-  color: #f56c6c;
-  font-size: 13px;
-  white-space: pre-line;
-  margin-bottom: 10px;
-}
-
-/* 手动兜底样式 */
-.manual-fallback {
-  margin-top: 10px;
-}
-
-.manual-fallback .el-divider {
-  margin: 15px 0 10px 0;
-}
-
-.manual-inputs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.manual-tip {
+.tip-text {
   font-size: 12px;
   color: #909399;
   margin-top: 8px;
+}
+
+.parse-success-card {
+  margin-top: 16px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  padding: 12px;
+  border-radius: 4px;
+}
+
+.parse-success-card .header {
+  color: #52c41a;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.info-grid .item.full { grid-column: span 2; }
+.info-grid .label { color: #8c8c8c; }
+
+.parse-error-msg {
+  margin-top: 12px;
+  color: #ff4d4f;
+  font-size: 13px;
 }
 </style>
