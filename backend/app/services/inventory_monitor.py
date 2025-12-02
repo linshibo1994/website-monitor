@@ -131,6 +131,33 @@ class InventoryMonitorService:
         logger.info(f"移除监控商品: {url}")
         self._save_state()
 
+    async def refresh_product_inventory(self, url: str) -> Optional[ProductInventory]:
+        """
+        立即抓取单个商品的库存信息
+
+        用于用户新建监控后快速获取商品名称、变体等数据，避免界面长期显示“未知”。
+        """
+        try:
+            logger.info(f"开始执行单个商品的即时库存抓取: {url}")
+
+            if 'scheels.com' in url:
+                new_inventory = await check_scheels_inventory(url)
+            else:
+                new_inventory = await check_product_inventory(url)
+
+            if new_inventory is None:
+                logger.warning(f"即时库存抓取失败: {url}")
+                return None
+
+            self.last_inventory[url] = new_inventory
+            self.last_check_time = datetime.now()
+            self._save_state()
+            logger.info(f"即时库存抓取成功，已更新缓存: {new_inventory.name}")
+            return new_inventory
+        except Exception as e:
+            logger.error(f"单个商品即时库存抓取异常: {url} - {e}")
+            return None
+
     async def check_all_products(self) -> dict:
         """检查所有监控商品的库存"""
         logger.info("=" * 50)

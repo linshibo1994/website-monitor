@@ -3,8 +3,9 @@
 从 config.yaml 加载配置
 """
 import os
+import re
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 import yaml
 from loguru import logger
@@ -71,6 +72,61 @@ class LoggingConfig:
 
 
 @dataclass
+class SiteCategory:
+    """站点分类"""
+    value: str
+    label: str
+
+
+@dataclass
+class SiteConfig:
+    """站点配置"""
+    site_id: str  # 站点ID
+    name: str  # 站点名称
+    domain: str  # 域名
+    url_templates: Dict[str, str]  # URL模板
+    default_category: str  # 默认分类
+    categories: List[SiteCategory]  # 分类列表
+    url_parse_pattern: str  # URL解析正则
+    key_pattern: str  # Key验证正则
+    key_example: str  # Key示例
+
+    def build_url(self, key: str, category: str = None) -> str:
+        """根据Key构建完整URL"""
+        cat = category or self.default_category
+        template = self.url_templates.get(cat, self.url_templates.get('default', ''))
+        return template.replace('{key}', key)
+
+    def parse_url(self, url: str) -> Optional[Dict[str, str]]:
+        """从URL解析出分类和Key"""
+        match = re.search(self.url_parse_pattern, url)
+        if match:
+            groups = match.groups()
+            if len(groups) == 2:
+                return {'category': groups[0], 'key': groups[1]}
+            elif len(groups) == 1:
+                return {'category': self.default_category, 'key': groups[0]}
+        return None
+
+    def validate_key(self, key: str) -> bool:
+        """验证Key格式"""
+        return bool(re.match(self.key_pattern, key))
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典（用于API返回）"""
+        return {
+            'site_id': self.site_id,
+            'name': self.name,
+            'domain': self.domain,
+            'url_templates': self.url_templates,
+            'default_category': self.default_category,
+            'categories': [{'value': c.value, 'label': c.label} for c in self.categories],
+            'key_pattern': self.key_pattern,
+            'key_example': self.key_example,
+        }
+
+
+@dataclass
 class AppConfig:
     """应用总配置"""
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
@@ -79,6 +135,7 @@ class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    sites: Dict[str, SiteConfig] = field(default_factory=dict)  # 站点配置
 
 
 class ConfigManager:
@@ -121,6 +178,26 @@ class ConfigManager:
             web_data = data.get('web', {})
             database_data = data.get('database', {})
             logging_data = data.get('logging', {})
+            sites_data = data.get('sites', {})
+
+            # 解析站点配置
+            sites = {}
+            for site_id, site_info in sites_data.items():
+                categories = [
+                    SiteCategory(value=cat.get('value', ''), label=cat.get('label', ''))
+                    for cat in site_info.get('categories', [])
+                ]
+                sites[site_id] = SiteConfig(
+                    site_id=site_id,
+                    name=site_info.get('name', site_id),
+                    domain=site_info.get('domain', ''),
+                    url_templates=site_info.get('url_templates', {}),
+                    default_category=site_info.get('default_category', 'default'),
+                    categories=categories,
+                    url_parse_pattern=site_info.get('url_parse_pattern', ''),
+                    key_pattern=site_info.get('key_pattern', ''),
+                    key_example=site_info.get('key_example', ''),
+                )
 
             self._config = AppConfig(
                 monitor=MonitorConfig(**monitor_data) if monitor_data else MonitorConfig(),
@@ -129,9 +206,10 @@ class ConfigManager:
                 web=WebConfig(**web_data) if web_data else WebConfig(),
                 database=DatabaseConfig(**database_data) if database_data else DatabaseConfig(),
                 logging=LoggingConfig(**logging_data) if logging_data else LoggingConfig(),
+                sites=sites,
             )
 
-            logger.info(f"配置文件加载成功: {config_path}")
+            logger.info(f"配置文件加载成功: {config_path}，站点数量: {len(sites)}")
 
         except Exception as e:
             logger.error(f"配置文件加载失败: {e}，使用默认配置")
@@ -157,6 +235,20 @@ class ConfigManager:
             config_path = PROJECT_ROOT / "config.yaml"
 
         config_path = Path(config_path)
+
+        # 序列化站点配置
+        sites_data = {}
+        for site_id, site in self._config.sites.items():
+            sites_data[site_id] = {
+                'name': site.name,
+                'domain': site.domain,
+                'url_templates': site.url_templates,
+                'default_category': site.default_category,
+                'categories': [{'value': c.value, 'label': c.label} for c in site.categories],
+                'url_parse_pattern': site.url_parse_pattern,
+                'key_pattern': site.key_pattern,
+                'key_example': site.key_example,
+            }
 
         data = {
             'monitor': {
@@ -198,6 +290,7 @@ class ConfigManager:
                 'backup_count': self._config.logging.backup_count,
                 'console': self._config.logging.console,
             },
+            'sites': sites_data,
         }
 
         with open(config_path, 'w', encoding='utf-8') as f:

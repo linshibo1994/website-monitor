@@ -1,12 +1,13 @@
 """
 库存监控相关 API 路由
 """
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from loguru import logger
 
 from ..services.inventory_monitor import inventory_monitor_service
+from ..services.url_parser import parse_product_input, get_supported_sites, build_product_url
 
 router = APIRouter()
 
@@ -42,11 +43,54 @@ class InventoryStatusResponse(BaseModel):
 
 
 class AddProductRequest(BaseModel):
-    """添加监控商品请求"""
-    url: str
+    """添加监控商品请求（支持智能解析）"""
+    # 智能模式：只需要提供 input，系统自动解析
+    input: Optional[str] = None
+    # 显式模式：提供站点、Key和分类
+    site_id: Optional[str] = None
+    key: Optional[str] = None
+    category: Optional[str] = None
+    # 传统模式：直接提供URL
+    url: Optional[str] = None
+    # 通用字段
     name: str = ""
     target_sizes: List[str] = []
     target_colors: List[str] = []
+
+
+class ParseRequest(BaseModel):
+    """解析请求"""
+    input: str
+
+
+class ParseResponse(BaseModel):
+    """解析响应"""
+    success: bool
+    site_id: Optional[str] = None
+    site_name: Optional[str] = None
+    key: Optional[str] = None
+    category: Optional[str] = None
+    url: Optional[str] = None
+    input_type: Optional[str] = None
+    error: Optional[str] = None
+    categories: Optional[List[Dict[str, str]]] = None
+
+
+class SiteInfo(BaseModel):
+    """站点信息"""
+    site_id: str
+    name: str
+    domain: str
+    url_templates: Dict[str, str]
+    default_category: str
+    categories: List[Dict[str, str]]
+    key_pattern: str
+    key_example: str
+
+
+class SitesResponse(BaseModel):
+    """站点列表响应"""
+    sites: List[SiteInfo]
 
 
 class MessageResponse(BaseModel):
@@ -62,6 +106,33 @@ class CheckResultResponse(BaseModel):
     changes_detected: int
     notifications_sent: int
     errors: List[str]
+
+
+# ==================== 新增站点和解析 API ====================
+
+@router.get("/sites", response_model=SitesResponse)
+async def get_sites():
+    """获取支持的站点列表"""
+    try:
+        sites = get_supported_sites()
+        return SitesResponse(sites=[SiteInfo(**s) for s in sites])
+    except Exception as e:
+        logger.error(f"获取站点列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/parse", response_model=ParseResponse)
+async def parse_input(request: ParseRequest):
+    """智能解析用户输入"""
+    try:
+        result = parse_product_input(request.input)
+        return ParseResponse(**result.to_dict())
+    except Exception as e:
+        logger.error(f"解析输入失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 原有 API ====================
 
 
 @router.get("/status", response_model=InventoryStatusResponse)
@@ -135,18 +206,62 @@ async def trigger_inventory_check():
 
 @router.post("/products", response_model=MessageResponse)
 async def add_product(request: AddProductRequest):
-    """添加监控商品"""
+    """
+    添加监控商品（支持三种模式）
+
+    1. 智能模式：提供 input，系统自动解析
+    2. 显式模式：提供 site_id + key + category
+    3. 传统模式：直接提供 url
+    """
     try:
+        url = None
+        name = request.name
+
+        # 模式1: 智能解析模式
+        if request.input:
+            result = parse_product_input(request.input)
+            if not result.success:
+                raise HTTPException(status_code=400, detail=result.error)
+
+            # 如果用户指定了分类，使用用户指定的
+            if request.category:
+                url = build_product_url(result.site_id, result.key, request.category)
+            else:
+                url = result.url
+
+        # 模式2: 显式模式
+        elif request.site_id and request.key:
+            url = build_product_url(request.site_id, request.key, request.category)
+            if not url:
+                raise HTTPException(status_code=400, detail=f"无法构建URL: site={request.site_id}, key={request.key}")
+
+        # 模式3: 传统模式
+        elif request.url:
+            url = request.url
+
+        else:
+            raise HTTPException(status_code=400, detail="请提供 input、url 或 site_id+key")
+
+        # 添加商品
         inventory_monitor_service.add_product(
-            url=request.url,
-            name=request.name,
+            url=url,
+            name=name,
             target_sizes=request.target_sizes,
             target_colors=request.target_colors
         )
+
+        # 立即抓取一次库存信息，确保前端能显示名称与尺码
+        initial_inventory = await inventory_monitor_service.refresh_product_inventory(url)
+        message_suffix = ""
+        if not initial_inventory:
+            message_suffix = "（首次抓取失败，请稍后手动执行一次库存检查）"
+
         return MessageResponse(
             success=True,
-            message=f"已添加监控商品: {request.url}"
+            message=f"已添加监控商品: {url}{message_suffix}"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"添加商品失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

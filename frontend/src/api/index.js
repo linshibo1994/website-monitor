@@ -77,4 +77,10 @@ export const addInventoryProduct = (data) => api.post('/inventory/products', dat
 
 export const removeInventoryProduct = (url) => api.delete('/inventory/products', { params: { url } })
 
+// 获取支持的站点列表
+export const getInventorySites = () => api.get('/inventory/sites')
+
+// 智能解析商品输入
+export const parseProductInput = (input) => api.post('/inventory/parse', { input })
+
 export default api
