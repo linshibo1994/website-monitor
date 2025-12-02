@@ -1,0 +1,48 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+venv/
+ENV/
+
+# 前端源码（只需要构建产物）
+frontend/node_modules
+frontend/src
+frontend/*.json
+frontend/*.js
+frontend/*.html
+
+# 数据和日志（运行时生成）
+data/
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 测试
+tests/
+pytest_cache/
+.coverage
+htmlcov/
+
+# 文档（保留 README）
+*.md
+!README.md
+
+# ❌ 不要忽略配置模板
+!config.example.yaml

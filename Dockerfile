@@ -41,11 +41,23 @@ COPY backend/ ./backend/
 # 复制前端构建产物（需要先本地执行 npm run build）
 COPY frontend/dist/ ./frontend/dist/
 
-# 复制配置文件
-COPY config.yaml ./config.yaml
+# 复制配置文件模板
+COPY config.example.yaml ./config.example.yaml
 
 # 复制库存监控脚本
 COPY run_inventory_monitor.py ./run_inventory_monitor.py
+
+# 创建启动脚本
+RUN echo '#!/bin/bash\n\
+# 如果 config.yaml 不存在，从模板复制\n\
+if [ ! -f /app/config.yaml ]; then\n\
+    echo "Creating config.yaml from template..."\n\
+    cp /app/config.example.yaml /app/config.yaml\n\
+fi\n\
+\n\
+# 启动应用\n\
+exec uvicorn backend.app.main:app --host 0.0.0.0 --port 7080\n\
+' > /app/start.sh && chmod +x /app/start.sh
 
 # 创建数据和日志目录
 RUN mkdir -p /app/data /app/logs
@@ -58,4 +70,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:7080/api/health || exit 1
 
 # 启动命令
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "7080"]
+CMD ["/app/start.sh"]

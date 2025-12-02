@@ -1,6 +1,5 @@
 # ==========================================
 # SCHEELS Arc'teryx 商品监控系统配置文件
-# 作者：linshibo
 # ==========================================
 # 使用方法：
 # 1. 复制此文件为 config.yaml
@@ -13,8 +12,8 @@ monitor:
   url: "https://www.scheels.com/c/all/b/arc'teryx/?redirect=arcteryx"
   # 检测间隔（分钟）
   interval_minutes: 10
-  # 请求超时（秒）
-  timeout_seconds: 60
+  # 请求超时（秒）- 加载全部商品可能需要较长时间
+  timeout_seconds: 180
   # 失败重试次数
   retry_times: 3
   # 重试间隔（秒）
@@ -31,11 +30,11 @@ email:
   # SMTP端口（SSL）
   smtp_port: 465
   # 发件人邮箱
-  sender: "your_qq_number@qq.com"
+  sender: "841466403@qq.com"
   # QQ邮箱授权码（非QQ密码，需要在QQ邮箱设置中获取）
-  password: "your_smtp_authorization_code"
+  password: "ywrqxlmxgwwxbbcj"
   # 收件人邮箱（可以和发件人相同）
-  receiver: "receiver_email@qq.com"
+  receiver: "564151906@qq.com"
 
 # 通知设置
 notification:
@@ -43,15 +42,15 @@ notification:
   notify_on_added: true
   # 商品减少时通知
   notify_on_removed: true
-  # 程序异常时通知
-  notify_on_error: true
+  # 程序异常时通知（已禁用）
+  notify_on_error: false
 
 # Web服务配置
 web:
-  # 主机地址
-  host: "127.0.0.1"
+  # 主机地址（Docker中需要设置为0.0.0.0）
+  host: "0.0.0.0"
   # 端口
-  port: 8080
+  port: 7080
   # 是否开启调试模式
   debug: false
   # 允许的跨域来源
@@ -80,3 +79,36 @@ logging:
   backup_count: 5
   # 是否输出到控制台
   console: true
+
+# 站点模板配置（用于智能URL解析）
+sites:
+  arcteryx_us:
+    name: "Arc'teryx US"
+    domain: "arcteryx.com"
+    url_templates:
+      mens: "https://arcteryx.com/us/en/shop/mens/{key}"
+      womens: "https://arcteryx.com/us/en/shop/womens/{key}"
+    default_category: "mens"
+    categories:
+      - value: "mens"
+        label: "Men's"
+      - value: "womens"
+        label: "Women's"
+    # URL解析正则（从完整URL提取分类和Key）
+    url_parse_pattern: "/shop/(mens|womens)/([a-z0-9-]+)"
+    # Key验证正则
+    key_pattern: "^[a-z0-9-]+-\\d+$"
+    key_example: "beta-sl-jacket-9685"
+
+  scheels:
+    name: "SCHEELS"
+    domain: "scheels.com"
+    url_templates:
+      default: "https://www.scheels.com/p/{key}"
+    default_category: "default"
+    categories: []
+    # URL解析正则（忽略queryID参数）
+    url_parse_pattern: "/p/(\\d+)"
+    # Key验证正则（8位以上数字）
+    key_pattern: "^\\d{8,}$"
+    key_example: "62355529822"
