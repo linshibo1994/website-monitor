@@ -55,19 +55,23 @@ if [ ! -f /app/config.yaml ]; then\n\
     cp /app/config.example.yaml /app/config.yaml\n\
 fi\n\
 \n\
+# 从环境变量读取端口，默认 8080（Cloud Run 标准）\n\
+PORT=${PORT:-8080}\n\
+echo "Starting server on port $PORT..."\n\
+\n\
 # 启动应用\n\
-exec uvicorn backend.app.main:app --host 0.0.0.0 --port 7080\n\
+exec uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 # 创建数据和日志目录
 RUN mkdir -p /app/data /app/logs
 
-# 暴露端口
-EXPOSE 7080
+# 暴露端口（Cloud Run 会忽略此设置，使用 PORT 环境变量）
+EXPOSE 8080
 
-# 健康检查
+# 健康检查（使用环境变量 PORT）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:7080/api/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8080}/api/health || exit 1
 
 # 启动命令
 CMD ["/app/start.sh"]

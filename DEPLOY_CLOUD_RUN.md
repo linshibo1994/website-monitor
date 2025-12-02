@@ -44,12 +44,14 @@ gcloud run deploy arcteryx-monitor \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
-  --port 7080 \
   --memory 2Gi \
   --cpu 1 \
   --timeout 3600 \
   --min-instances 0 \
   --max-instances 1
+
+# 注意：端口会自动适配 Cloud Run 的 PORT 环境变量（8080）
+# 本地 Docker 仍使用 7080 端口
 
 # 部署成功后会显示 URL，例如：
 # Service URL: https://arcteryx-monitor-xxx-uc.a.run.app
