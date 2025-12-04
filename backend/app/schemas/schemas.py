@@ -2,7 +2,7 @@
 Pydantic 数据模型（请求/响应模式）
 """
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pydantic import BaseModel, Field
 
 
@@ -186,3 +186,64 @@ class ErrorResponse(BaseModel):
     success: bool = False
     error: str
     detail: Optional[str] = None
+
+
+# ==================== 认证相关 ====================
+
+
+class LoginRequest(BaseModel):
+    """管理员登录请求"""
+    username: str = Field(description="用户名")
+    password: str = Field(description="密码")
+
+
+class TokenLoginRequest(BaseModel):
+    """Token 登录请求"""
+    token: str = Field(description="API Token")
+
+
+class TokenResponse(BaseModel):
+    """统一的JWT响应"""
+    access_token: str = Field(description="JWT令牌")
+    token_type: str = Field(default="bearer", description="令牌类型")
+    user_type: str = Field(description="用户类型")
+    expires_in: int = Field(description="有效期(秒)")
+
+
+class UserInfoResponse(BaseModel):
+    """当前用户信息"""
+    subject: str
+    type: str
+    token_id: Optional[int] = None
+    token_name: Optional[str] = None
+    is_admin: bool = False
+
+
+class TokenCreateRequest(BaseModel):
+    """创建Token请求"""
+    name: str = Field(..., max_length=100, description="备注名称")
+    expires_in: Literal["1d", "7d", "30d", "90d", "forever"] = Field(default="30d", description="有效期")
+
+
+class TokenUpdateRequest(BaseModel):
+    """更新Token请求"""
+    name: str = Field(..., max_length=100, description="备注名称")
+
+
+class ApiTokenSchema(BaseModel):
+    """Token 信息"""
+    id: int
+    name: str
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+    is_revoked: bool
+
+    class Config:
+        from_attributes = True
+
+
+class TokenCreateResponse(BaseModel):
+    """创建Token响应"""
+    token: str
+    token_info: ApiTokenSchema

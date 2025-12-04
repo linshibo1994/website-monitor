@@ -6,20 +6,62 @@ const api = axios.create({
   timeout: 60000
 })
 
-// 请求拦截器
+// 请求拦截器 - 添加 Authorization 头
 api.interceptors.request.use(
-  config => config,
+  config => {
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
   error => Promise.reject(error)
 )
 
-// 响应拦截器
+// 响应拦截器 - 处理401未授权
 api.interceptors.response.use(
   response => response,
-  error => {
+  async error => {
     console.error('API Error:', error)
+
+    // 401未授权，自动登出并跳转登录页
+    if (error.response && error.response.status === 401) {
+      // 动态导入避免循环依赖，同步更新 auth 响应式状态
+      const { useAuth } = await import('@/stores/auth')
+      const { logout } = useAuth()
+      logout()
+
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
+
     return Promise.reject(error)
   }
 )
+
+// ==================== 认证相关 ====================
+
+// 密码登录
+export const loginWithPassword = (username, password) => api.post('/auth/login', { username, password })
+
+// Token登录
+export const loginWithToken = (token) => api.post('/auth/login/token', { token })
+
+// 获取当前用户信息
+export const getCurrentUser = () => api.get('/auth/me')
+
+// 获取Token列表
+export const getTokenList = () => api.get('/tokens')
+
+// 创建新Token
+export const createToken = (name, expiresIn) => api.post('/tokens', { name, expires_in: expiresIn })
+
+// 更新Token备注
+export const updateToken = (id, name) => api.put(`/tokens/${id}`, { name })
+
+// 删除Token
+export const deleteToken = (id) => api.delete(`/tokens/${id}`)
 
 // ==================== 监控相关 ====================
 

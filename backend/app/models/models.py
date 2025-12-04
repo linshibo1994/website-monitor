@@ -137,3 +137,23 @@ class SystemConfig(Base):
 
     def __repr__(self):
         return f"<SystemConfig(key={self.key}, value={self.value})>"
+
+
+class ApiToken(Base):
+    """API Token 表"""
+    __tablename__ = "api_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime, nullable=True)
+    is_revoked = Column(Boolean, default=False)
+
+    def is_expired(self) -> bool:
+        """判断是否过期"""
+        return self.expires_at is not None and self.expires_at < datetime.utcnow()
+
+    def __repr__(self):
+        return f"<ApiToken(id={self.id}, name={self.name}, revoked={self.is_revoked})>"

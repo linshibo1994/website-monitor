@@ -33,6 +33,7 @@ loguru==0.7.2
 # 工具库
 httpx==0.26.0
 python-multipart==0.0.6
+python-jose==3.3.0
 
 # 开发工具
 pytest==7.4.4

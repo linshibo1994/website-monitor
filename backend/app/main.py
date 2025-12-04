@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.app.config import get_config
 from backend.app.database import init_db
-from backend.app.routers import products, history, settings, monitor, inventory
+from backend.app.routers import products, history, settings, monitor, inventory, auth, tokens
 
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -62,6 +62,8 @@ async def health_check():
 
 
 # 注册路由（API 路由必须在静态文件之前）
+app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
+app.include_router(tokens.router, prefix="/api/tokens", tags=["Token管理"])
 app.include_router(products.router, prefix="/api/products", tags=["商品"])
 app.include_router(history.router, prefix="/api/history", tags=["历史记录"])
 app.include_router(settings.router, prefix="/api/settings", tags=["设置"])

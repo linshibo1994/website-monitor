@@ -127,6 +127,15 @@ class SiteConfig:
 
 
 @dataclass
+class AuthConfig:
+    """认证配置"""
+    admin_username: str = "admin"
+    admin_password: str = "admin"
+    jwt_secret: str = "change-me"
+    jwt_expire_hours: int = 24
+
+
+@dataclass
 class AppConfig:
     """应用总配置"""
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
@@ -135,6 +144,7 @@ class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    auth: AuthConfig = field(default_factory=AuthConfig)
     sites: Dict[str, SiteConfig] = field(default_factory=dict)  # 站点配置
 
 
@@ -178,6 +188,7 @@ class ConfigManager:
             web_data = data.get('web', {})
             database_data = data.get('database', {})
             logging_data = data.get('logging', {})
+            auth_data = data.get('auth', {})
             sites_data = data.get('sites', {})
 
             # 解析站点配置
@@ -206,6 +217,7 @@ class ConfigManager:
                 web=WebConfig(**web_data) if web_data else WebConfig(),
                 database=DatabaseConfig(**database_data) if database_data else DatabaseConfig(),
                 logging=LoggingConfig(**logging_data) if logging_data else LoggingConfig(),
+                auth=AuthConfig(**auth_data) if auth_data else AuthConfig(),
                 sites=sites,
             )
 
@@ -289,6 +301,12 @@ class ConfigManager:
                 'max_size_mb': self._config.logging.max_size_mb,
                 'backup_count': self._config.logging.backup_count,
                 'console': self._config.logging.console,
+            },
+            'auth': {
+                'admin_username': self._config.auth.admin_username,
+                'admin_password': self._config.auth.admin_password,
+                'jwt_secret': self._config.auth.jwt_secret,
+                'jwt_expire_hours': self._config.auth.jwt_expire_hours,
             },
             'sites': sites_data,
         }

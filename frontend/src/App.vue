@@ -1,5 +1,5 @@
 <template>
-  <el-container class="layout-container">
+  <el-container class="layout-container" v-if="!isLoginPage">
     <!-- Sidebar -->
     <el-aside width="240px" class="aside">
       <div class="logo-container">
@@ -8,7 +8,7 @@
         </div>
         <span class="logo-text">Arc'teryx Monitor</span>
       </div>
-      
+
       <el-menu
         :default-active="activeMenu"
         router
@@ -22,28 +22,34 @@
           <el-icon><Odometer /></el-icon>
           <template #title>仪表盘</template>
         </el-menu-item>
-        
+
         <el-menu-item index="/inventory">
           <el-icon><Box /></el-icon>
           <template #title>库存监控</template>
         </el-menu-item>
-        
+
         <el-menu-item index="/products">
           <el-icon><Goods /></el-icon>
           <template #title>商品列表</template>
         </el-menu-item>
-        
+
         <el-menu-item index="/history">
           <el-icon><Timer /></el-icon>
           <template #title>历史记录</template>
         </el-menu-item>
-        
+
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
           <template #title>系统设置</template>
         </el-menu-item>
+
+        <!-- Token 管理菜单 - 仅管理员可见 -->
+        <el-menu-item v-if="isAdmin" index="/tokens">
+          <el-icon><Key /></el-icon>
+          <template #title>Token 管理</template>
+        </el-menu-item>
       </el-menu>
-      
+
       <div class="version-info">
         v1.0.0
       </div>
@@ -58,13 +64,35 @@
             <el-breadcrumb-item>{{ currentPageTitle }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
-        
+
         <div class="header-right">
           <div class="status-indicator" :class="{ active: monitorStatus.is_running }">
             <span class="dot"></span>
             <span class="text">{{ monitorStatus.is_running ? '监控运行中' : '监控已暂停' }}</span>
           </div>
-          <el-avatar :size="32" icon="UserFilled" class="user-avatar" />
+
+          <!-- 用户信息和退出 -->
+          <el-dropdown @command="handleUserCommand">
+            <div class="user-info">
+              <el-avatar :size="32" icon="UserFilled" class="user-avatar" />
+              <span class="user-name">{{ userName }}</span>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item disabled>
+                  <div class="user-type-tag">
+                    <el-tag :type="isAdmin ? 'danger' : 'primary'" size="small">
+                      {{ isAdmin ? '管理员' : 'Token 用户' }}
+                    </el-tag>
+                  </div>
+                </el-dropdown-item>
+                <el-dropdown-item divided command="logout">
+                  <el-icon><SwitchButton /></el-icon>
+                  退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-header>
 
@@ -77,19 +105,36 @@
       </el-main>
     </el-container>
   </el-container>
+
+  <!-- 登录页面不显示侧边栏 -->
+  <router-view v-else />
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { Monitor, Odometer, Box, Goods, Timer, Setting, UserFilled } from '@element-plus/icons-vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Monitor, Odometer, Box, Goods, Timer, Setting, Key, UserFilled, SwitchButton } from '@element-plus/icons-vue'
 import { getMonitorStatus } from '@/api'
+import { useAuth } from '@/stores/auth'
 
 const route = useRoute()
+const router = useRouter()
+const { user, isAdmin, logout } = useAuth()
+
 const monitorStatus = ref({ is_running: false })
 let statusTimer = null
 
 const activeMenu = computed(() => route.path)
+
+const isLoginPage = computed(() => route.path === '/login')
+
+const userName = computed(() => {
+  if (!user.value) return '未登录'
+  if (user.value.username) return user.value.username
+  if (user.value.name) return user.value.name
+  return isAdmin.value ? '管理员' : 'Token 用户'
+})
 
 const currentPageTitle = computed(() => {
   const titles = {
@@ -97,17 +142,40 @@ const currentPageTitle = computed(() => {
     '/inventory': '库存监控',
     '/products': '商品列表',
     '/history': '历史记录',
-    '/settings': '系统设置'
+    '/settings': '系统设置',
+    '/tokens': 'Token 管理'
   }
   return titles[route.path] || 'Monitor'
 })
 
 const fetchStatus = async () => {
+  // 登录页面不获取状态
+  if (isLoginPage.value) return
+
   try {
     const res = await getMonitorStatus()
     monitorStatus.value = res.data
   } catch (error) {
     console.error('Failed to fetch status', error)
+  }
+}
+
+// 处理用户菜单命令
+const handleUserCommand = async (command) => {
+  if (command === 'logout') {
+    try {
+      await ElMessageBox.confirm('确定要退出登录吗？', '退出登录', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+
+      logout()
+      ElMessage.success('已退出登录')
+      router.push('/login')
+    } catch (error) {
+      // 用户取消
+    }
   }
 }
 
@@ -230,11 +298,37 @@ html, body, #app {
 .header-right {
   display: flex;
   align-items: center;
+  gap: 16px;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 12px;
+  border-radius: 20px;
+  transition: background-color 0.3s;
+}
+
+.user-info:hover {
+  background-color: #f5f7fa;
+}
+
+.user-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #303133;
 }
 
 .user-avatar {
   cursor: pointer;
   background-color: #409eff;
+}
+
+.user-type-tag {
+  padding: 8px 0;
+  text-align: center;
 }
 
 /* Main Content */
