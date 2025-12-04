@@ -5,9 +5,11 @@
 # 使用方法:
 #   构建并启动: docker compose up -d --build
 #   查看日志:   docker compose logs -f
+#   查看特定服务日志: docker compose logs -f rakuten-monitor
 #   停止服务:   docker compose down
 #   执行检测:   docker compose exec monitor python -m backend.app.services.monitor --once
 #   库存检查:   docker compose exec inventory-monitor python run_inventory_monitor.py --once
+#   乐天监控状态: docker compose exec rakuten-monitor cat /app/data/rakuten_state.json
 
 services:
   monitor:
@@ -80,6 +82,31 @@ services:
     depends_on:
       monitor:
         condition: service_healthy
+
+  # 乐天商品监控服务（监控指定商品页面是否从404恢复可用）
+  rakuten-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rakuten-monitor
+    restart: unless-stopped
+    # 使用宿主机网络模式，解决 DNS 和网络问题
+    network_mode: "host"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config.yaml:/app/config.yaml:ro
+      # 挂载监控模块和脚本
+      - ./monitor:/app/monitor:ro
+      - ./rakuten_monitor_task.py:/app/rakuten_monitor_task.py:ro
+    environment:
+      - TZ=Asia/Shanghai
+      # 可选：通过环境变量覆盖邮件配置
+      # - MONITOR_SENDER_EMAIL=your_email@qq.com
+      # - MONITOR_SENDER_PASSWORD=your_password
+      # - MONITOR_RECIPIENTS=receiver@example.com
+    # 直接运行监控脚本（内置循环，默认5分钟检查一次）
+    command: ["python", "rakuten_monitor_task.py"]
 
 networks:
   default:
