@@ -438,16 +438,23 @@ const isTargetSize = (size, targets) => {
 }
 
 const getFilteredVariants = (row) => {
+  // 调试日志
+  console.log('[getFilteredVariants] row.target_colors:', row.target_colors)
+  console.log('[getFilteredVariants] row.variants count:', row.variants?.length)
+
   // 防护：variants 为空时返回空数组
   if (!row.variants || !row.variants.length) {
     return []
   }
   // 未设置目标颜色时返回所有变体
   if (!row.target_colors || !row.target_colors.length) {
+    console.log('[getFilteredVariants] No target_colors, returning all variants')
     return row.variants
   }
   // 过滤出匹配目标颜色的变体
-  return row.variants.filter(v => v.color_name && row.target_colors.includes(v.color_name))
+  const filtered = row.variants.filter(v => v.color_name && row.target_colors.includes(v.color_name))
+  console.log('[getFilteredVariants] Filtered count:', filtered.length)
+  return filtered
 }
 
 const getStatusType = (s) => ({ available: 'success', coming_soon: 'warning', unavailable: 'danger' }[s] || 'info')
