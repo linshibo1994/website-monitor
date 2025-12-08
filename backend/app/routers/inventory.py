@@ -8,6 +8,8 @@ from loguru import logger
 
 from ..services.inventory_monitor import inventory_monitor_service
 from ..services.url_parser import parse_product_input, get_supported_sites, build_product_url
+from ..services.inventory_scraper import inventory_scraper
+from ..services.scheels_scraper import scheels_scraper
 
 router = APIRouter()
 
@@ -108,6 +110,19 @@ class CheckResultResponse(BaseModel):
     errors: List[str]
 
 
+class ColorOption(BaseModel):
+    """颜色选项"""
+    value: str  # 颜色ID或值
+    label: str  # 颜色名称
+
+
+class ColorsResponse(BaseModel):
+    """颜色列表响应"""
+    success: bool
+    colors: List[ColorOption]
+    message: str = ""
+
+
 # ==================== 新增站点和解析 API ====================
 
 @router.get("/sites", response_model=SitesResponse)
@@ -130,6 +145,38 @@ async def parse_input(request: ParseRequest):
     except Exception as e:
         logger.error(f"解析输入失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/colors", response_model=ColorsResponse)
+async def get_colors(url: str):
+    """获取商品可用颜色列表"""
+    if not url:
+        raise HTTPException(status_code=400, detail="请提供商品URL")
+
+    try:
+        normalized_url = url.lower()
+
+        if 'scheels.com' in normalized_url:
+            colors = await scheels_scraper.get_available_colors(url)
+        elif 'arcteryx.com' in normalized_url:
+            colors = await inventory_scraper.get_available_colors(url)
+        else:
+            raise HTTPException(status_code=400, detail="不支持的URL，当前仅支持 Arc'teryx 与 Scheels")
+
+        color_options = [
+            ColorOption(value=str(c.get('value', '') or '').strip(), label=(c.get('label', '') or '').strip())
+            for c in colors if isinstance(c, dict) and (c.get('value') or c.get('label'))
+        ]
+
+        if not color_options:
+            return ColorsResponse(success=False, colors=[], message="未获取到颜色信息")
+
+        return ColorsResponse(success=True, colors=color_options, message="")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取颜色列表失败: {e}")
+        raise HTTPException(status_code=500, detail="获取颜色失败，请稍后重试")
 
 
 # ==================== 原有 API ====================

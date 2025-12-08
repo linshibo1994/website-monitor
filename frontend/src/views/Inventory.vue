@@ -90,7 +90,7 @@
                   :closable="false"
                 />
               </div>
-              <el-table v-else :data="props.row.variants" size="small" border>
+              <el-table v-else :data="getFilteredVariants(props.row)" size="small" border>
                 <el-table-column prop="size" label="尺码" width="120" align="center">
                   <template #default="{ row }">
                     <el-tag :type="isTargetSize(row.size, props.row.target_sizes) ? 'warning' : 'info'" size="small">
@@ -223,12 +223,20 @@
             filterable
             allow-create
             default-first-option
+            :loading="loadingColors"
             placeholder="所有颜色 (支持手动输入)"
             style="width: 100%"
           >
-            <el-option label="Black" value="Black" />
-            <el-option label="Void" value="Void" />
+            <el-option 
+              v-for="color in availableColors" 
+              :key="color.value" 
+              :label="color.label" 
+              :value="color.label" 
+            />
           </el-select>
+          <div v-if="parseResult.success && !loadingColors && availableColors.length === 0" class="color-hint">
+            未获取到可选颜色，可手动输入
+          </div>
         </el-form-item>
       </el-form>
 
@@ -255,7 +263,8 @@ import {
   stopInventoryScheduler,
   addInventoryProduct,
   removeInventoryProduct,
-  parseProductInput
+  parseProductInput,
+  getProductColors
 } from '@/api'
 
 const status = ref({
@@ -270,6 +279,8 @@ const checking = ref(false)
 const adding = ref(false)
 const showAddDialog = ref(false)
 const addMode = ref('smart')
+const availableColors = ref([])
+const loadingColors = ref(false)
 let refreshTimer = null
 
 // Add Product Form
@@ -336,6 +347,7 @@ const debounceParseInput = () => {
 
 const parseInput = async () => {
   const input = newProduct.value.input.trim()
+  availableColors.value = []  // 清空旧颜色数据
   if (!input) {
     parseResult.value = { success: false, error: null }
     return
@@ -347,9 +359,28 @@ const parseInput = async () => {
     if (res.data.success) {
       previewUrl.value = res.data.url
       if (res.data.category) newProduct.value.category = res.data.category
+      if (res.data.url) {
+        fetchColors(res.data.url)
+      }
     }
   } catch (err) {
     parseResult.value = { success: false, error: err.response?.data?.detail || '无法解析' }
+  }
+}
+
+const fetchColors = async (url) => {
+  loadingColors.value = true
+  try {
+    const res = await getProductColors(url)
+    if (res.data.success && res.data.colors) {
+      availableColors.value = res.data.colors
+    }
+  } catch (err) {
+    console.error('获取颜色失败:', err)
+    // 失败时保持空数组，用户可通过手动输入添加颜色
+    availableColors.value = []
+  } finally {
+    loadingColors.value = false
   }
 }
 
@@ -406,12 +437,26 @@ const isTargetSize = (size, targets) => {
   return targets.includes(size)
 }
 
+const getFilteredVariants = (row) => {
+  // 防护：variants 为空时返回空数组
+  if (!row.variants || !row.variants.length) {
+    return []
+  }
+  // 未设置目标颜色时返回所有变体
+  if (!row.target_colors || !row.target_colors.length) {
+    return row.variants
+  }
+  // 过滤出匹配目标颜色的变体
+  return row.variants.filter(v => v.color_name && row.target_colors.includes(v.color_name))
+}
+
 const getStatusType = (s) => ({ available: 'success', coming_soon: 'warning', unavailable: 'danger' }[s] || 'info')
 const getStatusText = (s) => ({ available: '现货', coming_soon: '即将上架', unavailable: '缺货' }[s] || s)
 
 const openAddDialog = () => {
   newProduct.value = { input: '', name: '', category: '', target_sizes: [], target_colors: [] }
   parseResult.value = { success: false }
+  availableColors.value = []
   showAddDialog.value = true
 }
 const handleDialogClose = () => {}
@@ -560,5 +605,11 @@ onUnmounted(() => {
   margin-top: 12px;
   color: #ff4d4f;
   font-size: 13px;
+}
+
+.color-hint {
+  margin-top: 4px;
+  color: #909399;
+  font-size: 12px;
 }
 </style>

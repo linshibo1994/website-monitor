@@ -47,6 +47,82 @@ class ScheelsInventoryScraper:
         size_text = size_text.strip()
         return self.SIZE_NORMALIZE.get(size_text, size_text)
 
+    async def get_available_colors(self, product_url: str, timeout: int = 30000) -> List[dict]:
+        """轻量级获取 Scheels 商品颜色（每个 URL 只对应单一颜色）"""
+        from playwright.async_api import async_playwright
+
+        browser = None
+        playwright_instance = None
+
+        try:
+            playwright_instance = await async_playwright().start()
+
+            browser_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-setuid-sandbox',
+            ]
+
+            has_display = os.environ.get('DISPLAY') is not None
+
+            if self.is_docker and has_display:
+                logger.info(f"Docker 环境 (DISPLAY={os.environ.get('DISPLAY')})：使用 Xvfb 虚拟显示")
+                browser = await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+            elif self.is_docker:
+                logger.info("Docker 环境：使用 headless 模式（颜色获取）")
+                browser = await playwright_instance.chromium.launch(
+                    headless=True,
+                    args=browser_args
+                )
+            else:
+                logger.info("本地环境：使用 headless 模式（颜色获取）")
+                browser = await playwright_instance.chromium.launch(
+                    headless=True,
+                    args=browser_args
+                )
+
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                locale='en-US',
+                timezone_id='America/New_York',
+            )
+
+            await context.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            ''')
+
+            page = await context.new_page()
+            page.set_default_timeout(timeout)
+
+            logger.info("加载 Scheels 页面获取颜色信息...")
+            await page.goto(product_url, wait_until='domcontentloaded', timeout=timeout)
+
+            # Scheels 颜色与 URL 一一对应，只需解析当前颜色
+            color_name = await self._get_current_color(page)
+            if color_name:
+                return [{'value': color_name, 'label': color_name}]
+
+            logger.warning("未能获取 Scheels 颜色信息")
+            return []
+        except Exception as e:
+            logger.error(f"获取 Scheels 颜色信息失败: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return []
+        finally:
+            if browser:
+                await browser.close()
+            if playwright_instance:
+                await playwright_instance.stop()
+
     async def check_inventory(self, product_url: str, max_retries: int = 3) -> Optional[ProductInventory]:
         """
         检查 Scheels 商品库存（带重试机制）
@@ -341,11 +417,62 @@ class ScheelsInventoryScraper:
             logger.warning(f"获取商品名称失败: {e}")
             return "Unknown Product"
 
+    async def _get_current_color(self, page) -> str:
+        """获取当前页面已选颜色名称"""
+        import re
+        try:
+            html_content = await page.content()
+
+            # 1) 从页面 HTML 数据中直接匹配颜色字段
+            color_patterns = [
+                r'\\"color\\":\\"\\d+::([^\\"]+)\\"',    # 转义 JSON 形式
+                r'"color":"\d+::([^"\\\\]+)"',          # 未转义 JSON 形式
+                r'\\"selectedColor\\":\\"([^\\"]+)\\"',  # 转义的 selectedColor
+                r'"selectedColor":"([^"\\\\]+)"',        # 未转义的 selectedColor
+            ]
+
+            for pattern in color_patterns:
+                match = re.search(pattern, html_content)
+                if match:
+                    color_name = match.group(1).strip()
+                    if color_name:
+                        logger.debug(f"从页面数据提取颜色: {color_name}")
+                        return color_name
+
+            # 2) DOM 兜底：查找 h2 中的 "Color:xxx"
+            try:
+                color_heading = page.locator('h2:has-text("Color")').first
+                if await color_heading.is_visible():
+                    text = await color_heading.text_content()
+                    if text:
+                        text = text.replace('\n', '').strip()
+                        if ':' in text:
+                            candidate = text.split(':', 1)[1].strip()
+                        else:
+                            candidate = text.replace('Color', '').replace('颜色', '').strip(' :')
+                        if candidate:
+                            logger.debug(f"从 DOM 提取颜色: {candidate}")
+                            return candidate
+            except Exception as dom_error:
+                logger.debug(f"DOM 颜色提取失败: {dom_error}")
+
+            return ""
+        except Exception as e:
+            logger.warning(f"获取颜色信息失败: {e}")
+            return ""
+
     async def _get_size_variants(self, page) -> List[VariantStock]:
         """获取尺码库存状态"""
         variants = []
 
         try:
+            # 获取当前颜色信息
+            current_color = await self._get_current_color(page)
+            if current_color:
+                logger.info(f"当前颜色: {current_color}")
+            else:
+                logger.warning("未获取到颜色信息，color_name 将为空")
+
             # 获取页面 HTML 内容
             html_content = await page.content()
 
@@ -383,7 +510,8 @@ class ScheelsInventoryScraper:
                     variants.append(VariantStock(
                         variant_sku=sku,
                         size=normalized_size,
-                        stock_status=stock_status
+                        stock_status=stock_status,
+                        color_name=current_color
                     ))
                     logger.debug(f"找到尺码: {size_name} ({normalized_size}), SKU: {sku}, 状态: {stock_status}")
 
@@ -438,7 +566,8 @@ class ScheelsInventoryScraper:
                     size=variant.size,
                     old_status=old_status,
                     new_status=new_status,
-                    became_available=not was_available and is_available
+                    became_available=not was_available and is_available,
+                    color_name=variant.color_name
                 ))
 
                 logger.info(

@@ -7,6 +7,7 @@ import re
 import json
 import asyncio
 import aiohttp
+import os
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -109,6 +110,155 @@ class ArcteryxInventoryScraper:
             full_sku = f"X{sku_num.zfill(9)}"
             return full_sku
         return None
+
+    async def get_available_colors(self, product_url: str, timeout: int = 30000) -> List[dict]:
+        """
+        轻量级获取可用颜色列表（仅解析颜色，不抓取库存）
+
+        Args:
+            product_url: 商品页面URL
+            timeout: 页面加载和操作超时时间（毫秒）
+
+        Returns:
+            颜色选项列表，例如 [{"value": "11281", "label": "Void"}]
+        """
+        from playwright.async_api import async_playwright
+
+        browser = None
+        playwright_instance = None
+        colors: List[dict] = []
+        seen_keys = set()
+
+        # 统一颜色去重与追加逻辑
+        def add_color(value: str, label: str):
+            val = (value or '').strip()
+            lbl = (label or '').strip()
+            key = val or lbl
+            if not key or key in seen_keys:
+                return
+            seen_keys.add(key)
+            colors.append({'value': val or lbl, 'label': lbl or val})
+
+        try:
+            playwright_instance = await async_playwright().start()
+
+            browser_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-setuid-sandbox',
+            ]
+
+            has_display = os.environ.get('DISPLAY') is not None
+
+            if self.is_docker and has_display:
+                logger.info(f"Docker 环境 (DISPLAY={os.environ.get('DISPLAY')})：使用 Xvfb 虚拟显示")
+                browser = await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+            elif self.is_docker:
+                logger.info("Docker 环境：使用 headless 模式（颜色获取）")
+                browser = await playwright_instance.chromium.launch(
+                    headless=True,
+                    args=browser_args
+                )
+            else:
+                logger.info("本地环境：使用非 headless 模式（颜色获取）")
+                browser_args.append('--window-position=-10000,-10000')
+                browser = await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                locale='en-US',
+                timezone_id='America/New_York',
+                geolocation={'latitude': 40.7128, 'longitude': -74.0060},
+                permissions=['geolocation']
+            )
+
+            await context.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            ''')
+
+            page = await context.new_page()
+            page.set_default_timeout(timeout)
+
+            logger.info("加载页面获取颜色信息...")
+            await page.goto(product_url, wait_until='domcontentloaded', timeout=timeout)
+
+            try:
+                await page.wait_for_selector('#__NEXT_DATA__', state='attached', timeout=5000)
+            except Exception:
+                logger.debug("未及时检测到 __NEXT_DATA__，尝试直接解析页面")
+
+            product_data = await page.evaluate('''() => {
+                const nextData = document.getElementById('__NEXT_DATA__');
+                if (nextData) {
+                    try {
+                        const data = JSON.parse(nextData.textContent);
+                        const product = data?.props?.pageProps?.product;
+                        if (product) {
+                            if (typeof product === 'string') {
+                                return JSON.parse(product);
+                            }
+                            return product;
+                        }
+                    } catch (e) {
+                        console.error('解析 __NEXT_DATA__ 失败:', e);
+                    }
+                }
+                return null;
+            }''')
+
+            if not product_data:
+                logger.warning("未能从页面数据中获取产品信息，颜色列表可能为空")
+                return []
+
+            colour_options = product_data.get('colourOptions', {}) if isinstance(product_data, dict) else {}
+            if isinstance(colour_options, dict):
+                options_list = colour_options.get('options', [])
+            elif isinstance(colour_options, list):
+                options_list = colour_options
+            else:
+                options_list = []
+
+            # 优先从 colourOptions 中获取颜色
+            for opt in options_list:
+                if not isinstance(opt, dict):
+                    continue
+                value = str(opt.get('value', '')).strip()
+                label = (opt.get('label', '') or '').strip()
+                add_color(value, label)
+
+            # 补充：从变体中合并遗漏的颜色
+            if isinstance(product_data, dict):
+                for variant in product_data.get('variants', []):
+                    if not isinstance(variant, dict):
+                        continue
+                    color_id = str(variant.get('colourId', '')).strip()
+                    colour_alternate_views = variant.get('colourAlternateViews') or []
+                    colour_label = ''
+                    if colour_alternate_views and isinstance(colour_alternate_views[0], dict):
+                        colour_label = (colour_alternate_views[0].get('colourLabel', '') or '').strip()
+                    # add_color 内部已有 lbl or val 回退逻辑
+                    add_color(color_id, colour_label)
+
+            return colors
+        except Exception as e:
+            logger.error(f"获取 Arc'teryx 颜色信息失败: {type(e).__name__}: {e}")
+            return []
+        finally:
+            if browser:
+                await browser.close()
+            if playwright_instance:
+                await playwright_instance.stop()
 
     async def check_inventory(self, product_url: str, max_retries: int = 3) -> Optional[ProductInventory]:
         """
@@ -344,6 +494,20 @@ class ArcteryxInventoryScraper:
                     if isinstance(opt, dict):
                         size_map[opt.get('value', '')] = opt.get('label', '')
 
+                # 构建颜色映射 - 处理不同的数据结构
+                colour_options = product_data.get('colourOptions', {})
+                if isinstance(colour_options, dict):
+                    colour_options_list = colour_options.get('options', [])
+                elif isinstance(colour_options, list):
+                    colour_options_list = colour_options
+                else:
+                    colour_options_list = []
+
+                colour_map = {}
+                for opt in colour_options_list:
+                    if isinstance(opt, dict):
+                        colour_map[str(opt.get('value', ''))] = opt.get('label', '')
+
                 # 优先使用捕获的API数据
                 if stock_data:
                     for variant_sku, stock_info in stock_data.items():
@@ -356,8 +520,12 @@ class ArcteryxInventoryScraper:
                                 size_id = variant.get('sizeId', '')
                                 size = size_map.get(size_id, size_id)
                                 # 提取颜色信息
-                                color_id = str(variant.get('colorId', ''))
-                                color_name = variant.get('colorName', '')
+                                color_id = str(variant.get('colourId', ''))
+                                colour_alternate_views = variant.get('colourAlternateViews') or []
+                                colour_label = ''
+                                if colour_alternate_views and isinstance(colour_alternate_views[0], dict):
+                                    colour_label = colour_alternate_views[0].get('colourLabel', '')
+                                color_name = colour_map.get(color_id, colour_label)
                                 break
 
                         variants.append(VariantStock(
@@ -375,8 +543,12 @@ class ArcteryxInventoryScraper:
                         size = size_map.get(size_id, size_id)
                         stock_status = variant.get('stockStatus', 'OutOfStock')
                         # 提取颜色信息
-                        color_id = str(variant.get('colorId', ''))
-                        color_name = variant.get('colorName', '')
+                        color_id = str(variant.get('colourId', ''))
+                        colour_alternate_views = variant.get('colourAlternateViews') or []
+                        colour_label = ''
+                        if colour_alternate_views and isinstance(colour_alternate_views[0], dict):
+                            colour_label = colour_alternate_views[0].get('colourLabel', '')
+                        color_name = colour_map.get(color_id, colour_label)
 
                         variants.append(VariantStock(
                             variant_sku=variant_sku,
