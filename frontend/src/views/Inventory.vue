@@ -212,9 +212,21 @@
           <el-input v-model="newProduct.name" placeholder="可选，默认自动获取" />
         </el-form-item>
         <el-form-item label="目标尺码">
-          <el-select v-model="newProduct.target_sizes" multiple placeholder="所有尺码" style="width: 100%">
-            <el-option v-for="s in ['XS','S','M','L','XL','2XL','XXL']" :key="s" :label="s" :value="s" />
+          <el-select 
+            v-model="newProduct.target_sizes" 
+            multiple 
+            filterable
+            allow-create
+            default-first-option
+            :loading="loadingSizes"
+            placeholder="所有尺码 (支持手动输入)" 
+            style="width: 100%"
+          >
+            <el-option v-for="s in availableSizes" :key="s" :label="s" :value="s" />
           </el-select>
+          <div v-if="parseResult.success && !loadingSizes && availableSizes.length === 0" class="tip-text">
+            未获取到可选尺码，可手动输入
+          </div>
         </el-form-item>
         <el-form-item label="目标颜色">
           <el-select
@@ -264,7 +276,8 @@ import {
   addInventoryProduct,
   removeInventoryProduct,
   parseProductInput,
-  getProductColors
+  getProductColors,
+  getProductSizes
 } from '@/api'
 
 const status = ref({
@@ -281,7 +294,11 @@ const showAddDialog = ref(false)
 const addMode = ref('smart')
 const availableColors = ref([])
 const loadingColors = ref(false)
+const availableSizes = ref([])
+const loadingSizes = ref(false)
 let refreshTimer = null
+let colorsRequestId = 0
+let sizesRequestId = 0
 
 // Add Product Form
 const newProduct = ref({
@@ -348,6 +365,7 @@ const debounceParseInput = () => {
 const parseInput = async () => {
   const input = newProduct.value.input.trim()
   availableColors.value = []  // 清空旧颜色数据
+  availableSizes.value = []   // 清空旧尺码数据
   if (!input) {
     parseResult.value = { success: false, error: null }
     return
@@ -361,6 +379,7 @@ const parseInput = async () => {
       if (res.data.category) newProduct.value.category = res.data.category
       if (res.data.url) {
         fetchColors(res.data.url)
+        fetchSizes(res.data.url)
       }
     }
   } catch (err) {
@@ -369,18 +388,44 @@ const parseInput = async () => {
 }
 
 const fetchColors = async (url) => {
+  const currentRequestId = ++colorsRequestId
   loadingColors.value = true
   try {
     const res = await getProductColors(url)
+    // 确保只处理最新请求的响应
+    if (currentRequestId !== colorsRequestId) return
     if (res.data.success && res.data.colors) {
       availableColors.value = res.data.colors
     }
   } catch (err) {
+    if (currentRequestId !== colorsRequestId) return
     console.error('获取颜色失败:', err)
     // 失败时保持空数组，用户可通过手动输入添加颜色
     availableColors.value = []
   } finally {
-    loadingColors.value = false
+    if (currentRequestId === colorsRequestId) {
+      loadingColors.value = false
+    }
+  }
+}
+
+const fetchSizes = async (url) => {
+  const currentRequestId = ++sizesRequestId
+  loadingSizes.value = true
+  try {
+    const res = await getProductSizes(url)
+    // 确保只处理最新请求的响应
+    if (currentRequestId !== sizesRequestId) return
+    // 后端直接返回 List[str]，不是对象
+    availableSizes.value = Array.isArray(res.data) ? res.data : []
+  } catch (err) {
+    if (currentRequestId !== sizesRequestId) return
+    console.error('获取尺码失败:', err)
+    availableSizes.value = []
+  } finally {
+    if (currentRequestId === sizesRequestId) {
+      loadingSizes.value = false
+    }
   }
 }
 
@@ -464,6 +509,7 @@ const openAddDialog = () => {
   newProduct.value = { input: '', name: '', category: '', target_sizes: [], target_colors: [] }
   parseResult.value = { success: false }
   availableColors.value = []
+  availableSizes.value = []
   showAddDialog.value = true
 }
 const handleDialogClose = () => {}

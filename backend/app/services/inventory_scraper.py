@@ -310,6 +310,166 @@ class ArcteryxInventoryScraper:
             if playwright_instance:
                 await playwright_instance.stop()
 
+    async def get_available_sizes(self, product_url: str, timeout: int = 30000) -> List[str]:
+        """轻量级获取可用尺码列表"""
+        from playwright.async_api import async_playwright
+
+        browser = None
+        playwright_instance = None
+
+        def add_size(result: List[str], seen: set, label: str):
+            size_label = (label or '').strip()
+            if size_label and size_label not in seen:
+                seen.add(size_label)
+                result.append(size_label)
+
+        try:
+            playwright_instance = await async_playwright().start()
+
+            browser_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-setuid-sandbox',
+            ]
+
+            has_display = os.environ.get('DISPLAY') is not None
+
+            if self.is_docker and has_display:
+                logger.info(f"Docker 环境 (DISPLAY={os.environ.get('DISPLAY')})：使用 Xvfb 虚拟显示")
+                browser = await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+            elif self.is_docker:
+                logger.info("Docker 环境：使用 headless 模式（尺码获取）")
+                browser = await playwright_instance.chromium.launch(
+                    headless=True,
+                    args=browser_args
+                )
+            else:
+                logger.info("本地环境：使用非 headless 模式（尺码获取）")
+                browser_args.append('--window-position=-10000,-10000')
+                browser = await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                locale='en-US',
+                timezone_id='America/New_York',
+                geolocation={'latitude': 40.7128, 'longitude': -74.0060},
+                permissions=['geolocation']
+            )
+
+            await context.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            ''')
+
+            page = await context.new_page()
+            page.set_default_timeout(timeout)
+
+            logger.info("加载页面获取尺码信息...")
+            await page.goto(product_url, wait_until='domcontentloaded', timeout=timeout)
+
+            product_data = await page.evaluate('''() => {
+                const nextData = document.getElementById('__NEXT_DATA__');
+                if (nextData) {
+                    try {
+                        const data = JSON.parse(nextData.textContent);
+                        const product = data?.props?.pageProps?.product;
+                        if (product) {
+                            if (typeof product === 'string') {
+                                return JSON.parse(product);
+                            }
+                            return product;
+                        }
+                    } catch (e) {
+                        console.error('解析 __NEXT_DATA__ 失败:', e);
+                    }
+                }
+                return null;
+            }''')
+
+            if isinstance(product_data, str):
+                try:
+                    product_data = json.loads(product_data)
+                except Exception:
+                    product_data = None
+
+            size_options: List[Any] = []
+            size_map: Dict[str, str] = {}
+
+            if isinstance(product_data, dict):
+                raw_size_options = product_data.get('sizeOptions', {})
+                if isinstance(raw_size_options, dict):
+                    size_options = raw_size_options.get('options', []) or []
+                elif isinstance(raw_size_options, list):
+                    size_options = raw_size_options
+
+                for opt in size_options:
+                    if not isinstance(opt, dict):
+                        continue
+                    value = str(opt.get('value', '') or '').strip()
+                    label = (opt.get('label', '') or '').strip()
+                    key = value or label
+                    if not key:
+                        continue
+                    size_map[key] = label or value
+                    if label:
+                        size_map[label] = label
+
+            available_sizes: List[str] = []
+            seen_sizes: set = set()
+
+            if isinstance(product_data, dict):
+                variants = product_data.get('variants', []) or []
+                if isinstance(variants, list):
+                    for variant in variants:
+                        if not isinstance(variant, dict):
+                            continue
+                        stock_status = str(variant.get('stockStatus', '') or '').lower()
+                        if stock_status not in ('instock', 'lowstock'):
+                            continue
+                        size_id = str(variant.get('sizeId') or variant.get('size_id') or '').strip()
+                        label = size_map.get(size_id)
+                        if not label:
+                            label = (variant.get('sizeLabel') or variant.get('size') or size_id).strip()
+                        add_size(available_sizes, seen_sizes, label)
+
+            if not available_sizes:
+                # 兜底：解析 DOM 中的尺寸按钮
+                dom_sizes = await page.evaluate('''() => {
+                    const buttons = Array.from(document.querySelectorAll('[data-testid="size-selector"] button, .size-selector button'));
+                    return buttons.map(btn => ({
+                        size: btn.textContent?.trim() || '',
+                        available: !btn.disabled && !btn.classList.contains('out-of-stock') && btn.getAttribute('aria-disabled') !== 'true'
+                    }));
+                }''')
+
+                if isinstance(dom_sizes, list):
+                    for item in dom_sizes:
+                        if not isinstance(item, dict):
+                            continue
+                        if not item.get('available'):
+                            continue
+                        add_size(available_sizes, seen_sizes, item.get('size', ''))
+
+            return available_sizes
+        except Exception as e:
+            logger.error(f"获取 Arc'teryx 尺码信息失败: {type(e).__name__}: {e}")
+            return []
+        finally:
+            if browser:
+                await browser.close()
+            if playwright_instance:
+                await playwright_instance.stop()
+
     async def check_inventory(self, product_url: str, max_retries: int = 3) -> Optional[ProductInventory]:
         """
         检查商品库存（带重试机制）

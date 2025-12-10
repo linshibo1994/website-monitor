@@ -2,6 +2,7 @@
 库存监控相关 API 路由
 """
 from typing import List, Optional, Dict, Any
+from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from loguru import logger
@@ -15,6 +16,30 @@ router = APIRouter()
 
 # 用于追踪正在运行的检测任务
 _running_check = False
+
+
+def validate_product_url(url: str) -> str:
+    """验证并规范化商品 URL"""
+    if not url:
+        raise HTTPException(status_code=400, detail="请提供商品URL")
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        raise HTTPException(status_code=400, detail="URL 格式无效")
+
+    if parsed.scheme not in ('http', 'https'):
+        raise HTTPException(status_code=400, detail="仅支持 HTTP/HTTPS 协议")
+
+    allowed_domains = ['scheels.com', 'arcteryx.com']
+    host = parsed.netloc.lower()
+    if not host:
+        raise HTTPException(status_code=400, detail="URL 格式无效")
+
+    if not any(host == domain or host.endswith('.' + domain) for domain in allowed_domains):
+        raise HTTPException(status_code=400, detail="不支持的URL，当前仅支持 Arc'teryx 与 Scheels")
+
+    return url
 
 
 class VariantInfo(BaseModel):
@@ -150,16 +175,14 @@ async def parse_input(request: ParseRequest):
 @router.get("/colors", response_model=ColorsResponse)
 async def get_colors(url: str):
     """获取商品可用颜色列表"""
-    if not url:
-        raise HTTPException(status_code=400, detail="请提供商品URL")
-
     try:
-        normalized_url = url.lower()
+        validated_url = validate_product_url(url)
+        host = urlparse(validated_url).netloc.lower()
 
-        if 'scheels.com' in normalized_url:
-            colors = await scheels_scraper.get_available_colors(url)
-        elif 'arcteryx.com' in normalized_url:
-            colors = await inventory_scraper.get_available_colors(url)
+        if host == 'scheels.com' or host.endswith('.scheels.com'):
+            colors = await scheels_scraper.get_available_colors(validated_url)
+        elif host == 'arcteryx.com' or host.endswith('.arcteryx.com'):
+            colors = await inventory_scraper.get_available_colors(validated_url)
         else:
             raise HTTPException(status_code=400, detail="不支持的URL，当前仅支持 Arc'teryx 与 Scheels")
 
@@ -177,6 +200,28 @@ async def get_colors(url: str):
     except Exception as e:
         logger.error(f"获取颜色列表失败: {e}")
         raise HTTPException(status_code=500, detail="获取颜色失败，请稍后重试")
+
+
+@router.get("/sizes", response_model=List[str])
+async def get_sizes(url: str):
+    """获取商品可用尺码列表"""
+    try:
+        validated_url = validate_product_url(url)
+        host = urlparse(validated_url).netloc.lower()
+
+        if host == 'scheels.com' or host.endswith('.scheels.com'):
+            sizes = await scheels_scraper.get_available_sizes(validated_url)
+        elif host == 'arcteryx.com' or host.endswith('.arcteryx.com'):
+            sizes = await inventory_scraper.get_available_sizes(validated_url)
+        else:
+            raise HTTPException(status_code=400, detail="不支持的URL，当前仅支持 Arc'teryx 与 Scheels")
+
+        return sizes or []
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取尺码列表失败: {e}")
+        raise HTTPException(status_code=500, detail="获取尺码失败，请稍后重试")
 
 
 # ==================== 原有 API ====================

@@ -123,6 +123,110 @@ class ScheelsInventoryScraper:
             if playwright_instance:
                 await playwright_instance.stop()
 
+    async def get_available_sizes(self, product_url: str, timeout: int = 30000) -> List[str]:
+        """轻量级获取可用尺码列表"""
+        from playwright.async_api import async_playwright
+
+        browser = None
+        playwright_instance = None
+
+        def add_size(result: List[str], seen: set, value: str):
+            size_label = (value or '').strip()
+            if size_label and size_label not in seen:
+                seen.add(size_label)
+                result.append(size_label)
+
+        try:
+            playwright_instance = await async_playwright().start()
+
+            browser_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-setuid-sandbox',
+            ]
+
+            has_display = os.environ.get('DISPLAY') is not None
+
+            if self.is_docker and has_display:
+                logger.info(f"Docker 环境 (DISPLAY={os.environ.get('DISPLAY')})：使用 Xvfb 虚拟显示")
+                browser = await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+            elif self.is_docker:
+                logger.info("Docker 环境：使用 headless 模式（尺码获取）")
+                browser = await playwright_instance.chromium.launch(
+                    headless=True,
+                    args=browser_args
+                )
+            else:
+                logger.info("本地环境：使用 headless 模式（尺码获取）")
+                browser = await playwright_instance.chromium.launch(
+                    headless=True,
+                    args=browser_args
+                )
+
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                locale='en-US',
+                timezone_id='America/New_York',
+            )
+
+            await context.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            ''')
+
+            page = await context.new_page()
+            page.set_default_timeout(timeout)
+
+            logger.info("加载 Scheels 页面获取尺码信息...")
+            await page.goto(product_url, wait_until='domcontentloaded', timeout=timeout)
+
+            variants = await self._get_size_variants(page)
+
+            available_sizes: List[str] = []
+            seen_sizes: set = set()
+
+            for variant in variants or []:
+                if variant.stock_status not in ('InStock', 'LowStock'):
+                    continue
+                add_size(available_sizes, seen_sizes, variant.size)
+
+            if not available_sizes:
+                # 兜底：直接解析 DOM 中可用的尺寸按钮
+                dom_sizes = await page.evaluate('''() => {
+                    const buttons = Array.from(
+                        document.querySelectorAll('button[data-test="size-selector-button"], [data-testid="size-selector"] button, .size-selector button')
+                    );
+                    return buttons.map(btn => ({
+                        size: btn.textContent?.trim() || '',
+                        available: !btn.disabled && !btn.classList.contains('out-of-stock') && btn.getAttribute('aria-disabled') !== 'true'
+                    }));
+                }''')
+
+                if isinstance(dom_sizes, list):
+                    for item in dom_sizes:
+                        if not isinstance(item, dict) or not item.get('available'):
+                            continue
+                        add_size(available_sizes, seen_sizes, item.get('size', ''))
+
+            return available_sizes
+        except Exception as e:
+            logger.error(f"获取 Scheels 尺码信息失败: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return []
+        finally:
+            if browser:
+                await browser.close()
+            if playwright_instance:
+                await playwright_instance.stop()
+
     async def check_inventory(self, product_url: str, max_retries: int = 3) -> Optional[ProductInventory]:
         """
         检查 Scheels 商品库存（带重试机制）

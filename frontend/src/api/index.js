@@ -125,6 +125,9 @@ export const getInventorySites = () => api.get('/inventory/sites')
 // 获取商品可用颜色
 export const getProductColors = (url) => api.get('/inventory/colors', { params: { url } })
 
+// 获取商品可用尺码
+export const getProductSizes = (url) => api.get('/inventory/sizes', { params: { url } })
+
 // 智能解析商品输入
 export const parseProductInput = (input) => api.post('/inventory/parse', { input })
 
