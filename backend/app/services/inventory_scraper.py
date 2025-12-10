@@ -8,7 +8,7 @@ import json
 import asyncio
 import aiohttp
 import os
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from loguru import logger
@@ -24,10 +24,23 @@ class VariantStock:
     stock_status: str     # 库存状态: InStock / OutOfStock / LowStock
     color_id: str = ""    # 颜色ID
     color_name: str = ""  # 颜色名称（如 Black, Void 等）
+    quantity: Optional[int] = None  # 精确库存（LowStock 时可用）
 
     def is_available(self) -> bool:
         """是否有库存"""
         return self.stock_status in ['InStock', 'LowStock']
+
+    def quantity_display(self) -> str:
+        """格式化剩余数量的展示文本"""
+        if self.stock_status == 'InStock':
+            return '充足 (>5 件)'
+        if self.stock_status == 'OutOfStock':
+            return '0 件'
+        if self.stock_status == 'LowStock':
+            if self.quantity is None:
+                return '未知'
+            return f"{self.quantity} 件"
+        return '未知'
 
 
 @dataclass
@@ -83,6 +96,43 @@ class ArcteryxInventoryScraper:
 
     # 尺寸排序
     SIZE_ORDER = {'XS': 0, 'S': 1, 'M': 2, 'L': 3, 'XL': 4, 'XXL': 5}
+    CART_FETCH_SCRIPT = """
+        async ({ endpoint, payload, method }) => {
+            try {
+                const options = {
+                    method,
+                    headers: {
+                        'accept': 'application/json, text/plain, */*'
+                    }
+                };
+                if (method !== 'GET') {
+                    options.headers['content-type'] = 'application/json';
+                    if (payload) {
+                        options.body = JSON.stringify(payload);
+                    }
+                }
+                const response = await fetch(endpoint, options);
+                const text = await response.text();
+                let data = null;
+                try {
+                    data = text ? JSON.parse(text) : null;
+                } catch (err) {
+                    data = null;
+                }
+                return {
+                    ok: response.ok,
+                    status: response.status,
+                    data
+                };
+            } catch (error) {
+                return {
+                    ok: false,
+                    status: 0,
+                    error: String(error)
+                };
+            }
+        }
+    """
 
     def __init__(self):
         self.config = get_config()
@@ -286,6 +336,144 @@ class ArcteryxInventoryScraper:
         logger.error(f"Arc'teryx 库存检查失败，已重试 {max_retries} 次: {product_url}")
         return None
 
+    async def get_exact_quantity(
+        self,
+        page: Any,
+        variant: VariantStock,
+        cart_params: Optional[Dict[str, str]]
+    ) -> Optional[int]:
+        """
+        通过购物车 API 获取 LowStock 变体的精确库存（1-4件）
+        """
+        if variant.stock_status != 'LowStock':
+            return None
+
+        cart_params = cart_params or {}
+        size_id = str(cart_params.get('size_id') or cart_params.get('sizeId') or '').strip()
+        colour_id = str(cart_params.get('colour_id') or cart_params.get('colourId') or variant.color_id or '').strip()
+        variant_sku = variant.variant_sku
+
+        if not (variant_sku and size_id and colour_id):
+            logger.debug(f"缺少购物车参数，无法获取精确库存: SKU={variant_sku}")
+            return None
+
+        async def call_cart_api(endpoint: str, method: str = 'POST', payload: Optional[dict] = None, fallback: Optional[str] = None) -> Optional[dict]:
+            try:
+                result = await page.evaluate(self.CART_FETCH_SCRIPT, {
+                    'endpoint': endpoint,
+                    'payload': payload,
+                    'method': method
+                })
+            except Exception as e:
+                logger.debug(f"调用 {endpoint} 失败: {e}")
+                result = None
+
+            if (not result or not result.get('ok')) and fallback:
+                try:
+                    result = await page.evaluate(self.CART_FETCH_SCRIPT, {
+                        'endpoint': endpoint,
+                        'payload': payload,
+                        'method': fallback
+                    })
+                except Exception as e:
+                    logger.debug(f"调用 {endpoint}({fallback}) 失败: {e}")
+                    result = None
+
+            if not result or not result.get('ok'):
+                return None
+
+            data = result.get('data')
+            return data if isinstance(data, dict) else {}
+
+        def unwrap_cart(data: Optional[dict]) -> dict:
+            if not isinstance(data, dict):
+                return {}
+            result = data.get('result')
+            if isinstance(result, dict):
+                nested = result.get('data', {})
+                json_payload = nested.get('json')
+                if isinstance(json_payload, dict):
+                    return json_payload
+            return data
+
+        def find_line_item(data: dict) -> Optional[dict]:
+            payload = unwrap_cart(data)
+            cart_body = payload.get('cart') if isinstance(payload.get('cart'), dict) else payload
+            items = cart_body.get('lineItems') or cart_body.get('items') or []
+            if not isinstance(items, list):
+                return None
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                sku = str(item.get('variantSku') or item.get('variantId') or item.get('id') or '')
+                if sku == variant_sku:
+                    return item
+            return None
+
+        def extract_quantity(line_item: dict, fallback: int) -> int:
+            for key in ('quantity', 'qty', 'count', 'lineItemQty', 'lineItemQuantity'):
+                value = line_item.get(key)
+                if value is None:
+                    continue
+                try:
+                    return int(value)
+                except (ValueError, TypeError):
+                    try:
+                        return int(float(value))
+                    except (ValueError, TypeError):
+                        continue
+            return fallback
+
+        logger.info(f"尝试获取精确库存: SKU={variant_sku}, 尺寸={variant.size}, 颜色={variant.color_name or colour_id}")
+
+        # 确保购物车为空，避免历史数据干扰
+        await call_cart_api('/api/cart.clear', method='POST')
+
+        max_attempts = 4
+        last_known_quantity: Optional[int] = None
+
+        try:
+            for attempt in range(1, max_attempts + 1):
+                add_payload = {
+                    'variantSku': variant_sku,
+                    'sizeId': size_id,
+                    'colourId': colour_id,
+                    'quantity': 1
+                }
+                add_result = await call_cart_api('/api/cart.add', method='POST', payload=add_payload)
+                if add_result is None:
+                    logger.warning(f"添加购物车失败，无法获取精确库存: SKU={variant_sku}")
+                    break
+
+                cart_state = await call_cart_api('/api/cart.get', method='GET', fallback='POST')
+                if cart_state is None:
+                    logger.warning(f"获取购物车状态失败，无法计算精确库存: SKU={variant_sku}")
+                    break
+
+                line_item = find_line_item(cart_state)
+                if not line_item:
+                    logger.warning(f"购物车中未找到目标变体: SKU={variant_sku}")
+                    break
+
+                current_qty = extract_quantity(line_item, attempt)
+                last_known_quantity = current_qty
+                has_limit = bool(line_item.get('hasReachedStockLimit'))
+                insufficient = bool(line_item.get('hasInsufficientStock'))
+
+                logger.debug(f"购物车状态: SKU={variant_sku}, qty={current_qty}, limit={has_limit}, insufficient={insufficient}")
+
+                if has_limit or insufficient:
+                    logger.info(f"精确库存确认: SKU={variant_sku}, qty={current_qty}")
+                    return current_qty
+
+            if last_known_quantity:
+                logger.info(f"未检测到库存上限信号，返回已知数量: SKU={variant_sku}, qty={last_known_quantity}")
+            else:
+                logger.warning(f"无法获取精确库存，返回未知: SKU={variant_sku}")
+            return last_known_quantity
+        finally:
+            await call_cart_api('/api/cart.clear', method='POST')
+
     async def _check_inventory_once(self, product_url: str) -> Optional[ProductInventory]:
         """
         单次检查商品库存 - 使用 Playwright 浏览器
@@ -476,6 +664,7 @@ class ArcteryxInventoryScraper:
             # 构建库存信息
             variants = []
             product_name = ''
+            variant_cart_params: Dict[str, Dict[str, str]] = {}
 
             if product_data:
                 product_name = product_data.get('name', '')
@@ -535,6 +724,10 @@ class ArcteryxInventoryScraper:
                             color_id=color_id,
                             color_name=color_name
                         ))
+                        variant_cart_params[variant_sku] = {
+                            'size_id': str(size_id),
+                            'colour_id': color_id
+                        }
                 else:
                     # 使用页面数据
                     for variant in product_data.get('variants', []):
@@ -557,6 +750,10 @@ class ArcteryxInventoryScraper:
                             color_id=color_id,
                             color_name=color_name
                         ))
+                        variant_cart_params[variant_sku] = {
+                            'size_id': str(size_id),
+                            'colour_id': color_id
+                        }
             elif stock_data:
                 # 只有API数据，没有产品数据
                 for variant_sku, stock_info in stock_data.items():
@@ -572,6 +769,14 @@ class ArcteryxInventoryScraper:
 
             # 按尺寸排序
             variants.sort(key=lambda v: self.SIZE_ORDER.get(v.size, 99))
+
+            # 对 LowStock 变体补充精确库存
+            for variant in variants:
+                if variant.stock_status == 'LowStock':
+                    params = variant_cart_params.get(variant.variant_sku)
+                    quantity = await self.get_exact_quantity(page, variant, params)
+                    if quantity is not None:
+                        variant.quantity = quantity
 
             inventory = ProductInventory(
                 model_sku=model_sku,

@@ -339,6 +339,9 @@ class InventoryMonitorService:
                 <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
                     <span style="color: {status_color}; font-weight: bold;">{status_text}</span>
                 </td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; color: #555;">
+                    {variant.quantity_display()}
+                </td>
             </tr>
             ''')
 
@@ -354,6 +357,7 @@ class InventoryMonitorService:
                     <tr style="background: #ecf0f1;">
                         <th style="padding: 12px; text-align: center;">尺寸</th>
                         <th style="padding: 12px; text-align: center;">状态</th>
+                        <th style="padding: 12px; text-align: center;">剩余数量</th>
                     </tr>
                     {''.join(size_rows)}
                 </table>
@@ -443,6 +447,9 @@ class InventoryMonitorService:
                     <span style="color: {status_color}; font-weight: bold;">{status_text}</span>
                     {' 🎉' if variant.size in restocked_sizes else ''}
                 </td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; color: #555;">
+                    {variant.quantity_display()}
+                </td>
             </tr>
             ''')
 
@@ -485,6 +492,7 @@ class InventoryMonitorService:
                     <tr style="background: #ecf0f1;">
                         <th style="padding: 12px; text-align: center;">尺寸</th>
                         <th style="padding: 12px; text-align: center;">状态</th>
+                        <th style="padding: 12px; text-align: center;">剩余数量</th>
                     </tr>
                     {''.join(size_rows)}
                 </table>
