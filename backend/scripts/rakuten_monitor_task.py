@@ -13,8 +13,8 @@ import requests
 import yaml
 from bs4 import BeautifulSoup
 
-from monitor.config import ConfigError, load_config
-from monitor.notifier import EmailNotifier
+from backend.app.services.rakuten_monitor.config import ConfigError, load_config
+from backend.app.services.rakuten_monitor.notifier import EmailNotifier
 
 TARGET_URL = "https://item.rakuten.co.jp/auc-refalt/531-09893/"
 MONITOR_NAME = "乐天 Refalt 商品监控"

@@ -15,6 +15,20 @@ class ProductStatus(str, enum.Enum):
     REMOVED = "removed"    # 已下架
 
 
+class ReleaseMonitorStatus(str, enum.Enum):
+    """上线监控状态枚举"""
+    COMING_SOON = "coming_soon"    # 即将上线
+    AVAILABLE = "available"        # 已上线可购买
+    UNAVAILABLE = "unavailable"    # 不可用/下架
+    ERROR = "error"                # 检测错误
+
+
+class WebsiteType(str, enum.Enum):
+    """支持的网站类型枚举"""
+    DAYTONA_PARK = "daytona_park"  # Daytona Park
+    RAKUTEN = "rakuten"            # 乐天
+
+
 class ChangeType(str, enum.Enum):
     """变化类型枚举"""
     ADDED = "added"        # 新增
@@ -157,3 +171,43 @@ class ApiToken(Base):
 
     def __repr__(self):
         return f"<ApiToken(id={self.id}, name={self.name}, revoked={self.is_revoked})>"
+
+
+class ReleaseMonitorProduct(Base):
+    """上线监控商品表 - 用于监控即将上线的商品"""
+    __tablename__ = "release_monitor_products"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # 商品URL（唯一标识）
+    url = Column(String(500), unique=True, nullable=False, index=True)
+    # 商品名称（自动提取或手动填写）
+    name = Column(String(255), nullable=True)
+    # 网站类型
+    website_type = Column(String(20), nullable=False, index=True)
+    # 商品ID（从URL提取）
+    product_id = Column(String(50), nullable=True)
+    # 当前状态
+    status = Column(String(20), default=ReleaseMonitorStatus.COMING_SOON.value)
+    # 预计上线时间（如果能从页面获取）
+    scheduled_release_time = Column(String(100), nullable=True)
+    # 最后检测时间
+    last_check_time = Column(DateTime, nullable=True)
+    # 最后检测结果详情（JSON格式存储库存等信息）
+    last_check_result = Column(Text, nullable=True)
+    # 是否已发送上线通知
+    notification_sent = Column(Boolean, default=False)
+    # 通知发送时间
+    notification_sent_at = Column(DateTime, nullable=True)
+    # 是否启用监控
+    is_active = Column(Boolean, default=True)
+    # 检测失败次数（连续失败计数）
+    consecutive_failures = Column(Integer, default=0)
+    # 最后错误信息
+    last_error = Column(Text, nullable=True)
+    # 创建时间
+    created_at = Column(DateTime, default=datetime.utcnow)
+    # 更新时间
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<ReleaseMonitorProduct(id={self.id}, url={self.url}, status={self.status})>"

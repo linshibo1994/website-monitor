@@ -712,7 +712,7 @@ docker compose exec monitor bash
 docker compose exec monitor python -m backend.app.services.monitor --once
 
 # 手动执行 Arc'teryx 库存检测
-docker compose exec inventory-monitor python run_inventory_monitor.py --once
+docker compose exec inventory-monitor python -m backend.scripts.run_inventory_monitor --once
 
 # 重新构建镜像
 docker compose build --no-cache
@@ -752,7 +752,7 @@ crontab -e
 */10 * * * * cd /path/to/website-monitor && /usr/bin/python3 -m backend.app.services.monitor --once >> logs/cron.log 2>&1
 
 # 添加定时任务（每5分钟执行一次 Arc'teryx 库存检测）
-*/5 * * * * cd /path/to/website-monitor && /usr/bin/python3 run_inventory_monitor.py --once >> logs/inventory_cron.log 2>&1
+*/5 * * * * cd /path/to/website-monitor && /usr/bin/python3 -m backend.scripts.run_inventory_monitor --once >> logs/inventory_cron.log 2>&1
 ```
 
 ---

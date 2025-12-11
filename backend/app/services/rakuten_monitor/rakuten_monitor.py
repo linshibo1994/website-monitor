@@ -11,8 +11,8 @@ from .config import load_config
 from .detector import RakutenPageDetector
 from .notifier import EmailNotifier
 
-BASE_DIR = Path(__file__).resolve().parent
-STATE_FILE = BASE_DIR / "data" / "monitor_state.json"
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent  # 项目根目录
+STATE_FILE = BASE_DIR / "data" / "rakuten_monitor_state.json"
 
 
 class RakutenMonitor:
@@ -99,7 +99,7 @@ def setup_logging(logging_config: Dict[str, Any]) -> None:
     """根据配置初始化 logging。"""
     level_name = logging_config.get("level", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
-    log_file = logging_config.get("file", "monitor/logs/monitor.log")
+    log_file = logging_config.get("file", "logs/rakuten_monitor.log")
     log_path = Path(log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 

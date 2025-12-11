@@ -21,6 +21,12 @@ const routes = [
     meta: { title: '库存监控', requiresAuth: true }
   },
   {
+    path: '/release',
+    name: 'ReleaseMonitor',
+    component: () => import('@/views/ReleaseMonitor.vue'),
+    meta: { title: '上线监控', requiresAuth: true }
+  },
+  {
     path: '/products',
     name: 'Products',
     component: () => import('@/views/Products.vue'),

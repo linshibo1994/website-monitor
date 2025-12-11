@@ -26,7 +26,6 @@ RUN apt-get update && apt-get install -y \
 
 # 复制依赖文件
 COPY backend/requirements.txt .
-COPY requirements-monitor.txt .
 
 # 安装 Python 依赖（使用阿里云镜像源加速，增加超时时间）
 RUN pip install --no-cache-dir \
@@ -34,13 +33,7 @@ RUN pip install --no-cache-dir \
     --retries=5 \
     -i https://mirrors.aliyun.com/pypi/simple \
     --trusted-host mirrors.aliyun.com \
-    -r requirements.txt && \
-    pip install --no-cache-dir \
-    --timeout=120 \
-    --retries=5 \
-    -i https://mirrors.aliyun.com/pypi/simple \
-    --trusted-host mirrors.aliyun.com \
-    -r requirements-monitor.txt
+    -r requirements.txt
 
 # 复制后端代码
 COPY backend/ ./backend/
@@ -50,13 +43,6 @@ COPY frontend/dist/ ./frontend/dist/
 
 # 复制配置文件模板
 COPY config.example.yaml ./config.example.yaml
-
-# 复制库存监控脚本
-COPY run_inventory_monitor.py ./run_inventory_monitor.py
-
-# 复制乐天监控模块和脚本
-COPY monitor/ ./monitor/
-COPY rakuten_monitor_task.py ./rakuten_monitor_task.py
 
 # 创建启动脚本
 RUN echo '#!/bin/bash\n\

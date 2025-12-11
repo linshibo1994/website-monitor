@@ -27,8 +27,8 @@ import asyncio
 import argparse
 from pathlib import Path
 
-# 添加项目路径
-sys.path.insert(0, str(Path(__file__).parent))
+# 添加项目路径（backend/scripts 的上两级目录为项目根目录）
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.app.services.inventory_monitor import (
     inventory_monitor_service,
@@ -47,7 +47,7 @@ def setup_logging():
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
     )
 
-    log_file = Path(__file__).parent / 'logs' / 'inventory_monitor.log'
+    log_file = Path(__file__).parent.parent.parent / 'logs' / 'inventory_monitor.log'
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     logger.add(

@@ -85,7 +85,7 @@ def _validate_config(config: Dict[str, Any]) -> None:
 
     logging_cfg = config.setdefault("logging", {})
     logging_cfg.setdefault("level", "INFO")
-    logging_cfg.setdefault("file", "monitor/logs/monitor.log")
+    logging_cfg.setdefault("file", "logs/rakuten_monitor.log")
 
 
 __all__ = ["load_config", "ConfigError"]

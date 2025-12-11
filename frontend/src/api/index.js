@@ -131,4 +131,27 @@ export const getProductSizes = (url) => api.get('/inventory/sizes', { params: { 
 // 智能解析商品输入
 export const parseProductInput = (input) => api.post('/inventory/parse', { input })
 
+// ==================== 上线监控相关 ====================
+
+// 获取上线监控状态
+export const getReleaseStatus = () => api.get('/release/status')
+
+// 触发上线检测
+export const triggerReleaseCheck = () => api.post('/release/check')
+
+// 添加上线监控商品
+export const addReleaseProduct = (data) => api.post('/release/products', data)
+
+// 移除上线监控商品
+export const removeReleaseProduct = (productId) => api.delete(`/release/products/${productId}`)
+
+// 解析上线监控URL
+export const parseReleaseUrl = (url) => api.post('/release/parse', { url })
+
+// 检测单个商品
+export const checkSingleReleaseProduct = (productId) => api.post(`/release/products/${productId}/check`)
+
+// 获取支持的网站列表
+export const getReleaseWebsites = () => api.get('/release/websites')
+
 export default api

@@ -8,7 +8,7 @@
 #   查看特定服务日志: docker compose logs -f rakuten-monitor
 #   停止服务:   docker compose down
 #   执行检测:   docker compose exec monitor python -m backend.app.services.monitor --once
-#   库存检查:   docker compose exec inventory-monitor python run_inventory_monitor.py --once
+#   库存检查:   docker compose exec inventory-monitor python -m backend.scripts.run_inventory_monitor --once
 #   乐天监控状态: docker compose exec rakuten-monitor cat /app/data/rakuten_state.json
 
 services:
@@ -66,8 +66,6 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config.yaml:/app/config.yaml:ro
-      # 挂载库存监控脚本
-      - ./run_inventory_monitor.py:/app/run_inventory_monitor.py:ro
     environment:
       - TZ=Asia/Shanghai
       - DISPLAY=:99
@@ -77,7 +75,7 @@ services:
       bash -c "
         Xvfb :99 -screen 0 1920x1080x24 &
         sleep 2
-        python run_inventory_monitor.py --daemon --interval 5
+        python -m backend.scripts.run_inventory_monitor --daemon --interval 5
       "
     depends_on:
       monitor:
@@ -96,9 +94,6 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config.yaml:/app/config.yaml:ro
-      # 挂载监控模块和脚本
-      - ./monitor:/app/monitor:ro
-      - ./rakuten_monitor_task.py:/app/rakuten_monitor_task.py:ro
     environment:
       - TZ=Asia/Shanghai
       # 可选：通过环境变量覆盖邮件配置
@@ -106,7 +101,7 @@ services:
       # - MONITOR_SENDER_PASSWORD=your_password
       # - MONITOR_RECIPIENTS=receiver@example.com
     # 直接运行监控脚本（内置循环，默认5分钟检查一次）
-    command: ["python", "rakuten_monitor_task.py"]
+    command: ["python", "-m", "backend.scripts.rakuten_monitor_task"]
 
 networks:
   default:

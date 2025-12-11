@@ -93,3 +93,12 @@ async def get_db():
         except Exception:
             await session.rollback()
             raise
+
+
+def get_sync_db():
+    """FastAPI依赖注入用的同步会话生成器"""
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()

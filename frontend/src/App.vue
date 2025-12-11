@@ -28,6 +28,11 @@
           <template #title>库存监控</template>
         </el-menu-item>
 
+        <el-menu-item index="/release">
+          <el-icon><Bell /></el-icon>
+          <template #title>上线监控</template>
+        </el-menu-item>
+
         <el-menu-item index="/products">
           <el-icon><Goods /></el-icon>
           <template #title>商品列表</template>
@@ -114,7 +119,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Monitor, Odometer, Box, Goods, Timer, Setting, Key, UserFilled, SwitchButton } from '@element-plus/icons-vue'
+import { Monitor, Odometer, Box, Goods, Timer, Setting, Key, UserFilled, SwitchButton, Bell } from '@element-plus/icons-vue'
 import { getMonitorStatus } from '@/api'
 import { useAuth } from '@/stores/auth'
 
@@ -140,6 +145,7 @@ const currentPageTitle = computed(() => {
   const titles = {
     '/': '仪表盘',
     '/inventory': '库存监控',
+    '/release': '上线监控',
     '/products': '商品列表',
     '/history': '历史记录',
     '/settings': '系统设置',
