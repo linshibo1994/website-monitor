@@ -10,6 +10,8 @@ from ..schemas.schemas import (
     SettingsUpdateRequest,
     MonitorConfigSchema,
     EmailConfigSchema,
+    WeChatConfigSchema,
+    QQConfigSchema,
     NotificationConfigSchema,
     MessageResponse
 )
@@ -37,6 +39,15 @@ async def get_settings():
             sender=config.email.sender,
             password="******" if config.email.password else "",  # 隐藏密码
             receiver=config.email.receiver
+        ),
+        wechat=WeChatConfigSchema(
+            enabled=config.wechat.enabled,
+            sendkey="******" if config.wechat.sendkey else "",  # 隐藏 sendkey
+        ),
+        qq=QQConfigSchema(
+            enabled=config.qq.enabled,
+            key="******" if config.qq.key else "",  # 隐藏 key
+            qq=config.qq.qq,
         ),
         notification=NotificationConfigSchema(
             notify_on_added=config.notification.notify_on_added,
@@ -81,6 +92,25 @@ async def update_settings(request: SettingsUpdateRequest):
                 notify_on_error=request.notification.notify_on_error
             )
 
+        if request.wechat:
+            sendkey = request.wechat.sendkey
+            if sendkey == "******":
+                sendkey = get_config().wechat.sendkey
+            config_manager.update_wechat_config(
+                enabled=request.wechat.enabled,
+                sendkey=sendkey,
+            )
+
+        if request.qq:
+            key = request.qq.key
+            if key == "******":
+                key = get_config().qq.key
+            config_manager.update_qq_config(
+                enabled=request.qq.enabled,
+                key=key,
+                qq=request.qq.qq,
+            )
+
         # 保存到文件
         config_manager.save_config()
 
@@ -99,6 +129,32 @@ async def send_test_email():
             return MessageResponse(success=True, message="测试邮件发送成功")
         else:
             return MessageResponse(success=False, message="测试邮件发送失败，请检查配置")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"发送失败: {str(e)}")
+
+
+@router.post("/test-wechat", response_model=MessageResponse)
+async def send_test_wechat():
+    """发送测试微信通知"""
+    try:
+        success = email_notifier.send_test_wechat()
+        if success:
+            return MessageResponse(success=True, message="测试微信通知发送成功")
+        else:
+            return MessageResponse(success=False, message="测试微信通知发送失败，请检查配置")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"发送失败: {str(e)}")
+
+
+@router.post("/test-qq", response_model=MessageResponse)
+async def send_test_qq():
+    """发送测试 QQ 通知"""
+    try:
+        success = email_notifier.send_test_qq()
+        if success:
+            return MessageResponse(success=True, message="测试QQ通知发送成功")
+        else:
+            return MessageResponse(success=False, message="测试QQ通知发送失败，请检查配置")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"发送失败: {str(e)}")
 

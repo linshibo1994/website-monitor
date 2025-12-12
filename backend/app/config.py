@@ -37,6 +37,21 @@ class EmailConfig:
 
 
 @dataclass
+class WeChatConfig:
+    """微信 ServerChan 配置"""
+    enabled: bool = False
+    sendkey: str = ""
+
+
+@dataclass
+class QQConfig:
+    """QQ Qmsg 酱配置"""
+    enabled: bool = False
+    key: str = ""
+    qq: str = ""
+
+
+@dataclass
 class NotificationConfig:
     """通知设置"""
     notify_on_added: bool = True
@@ -140,6 +155,8 @@ class AppConfig:
     """应用总配置"""
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     email: EmailConfig = field(default_factory=EmailConfig)
+    wechat: WeChatConfig = field(default_factory=WeChatConfig)
+    qq: QQConfig = field(default_factory=QQConfig)
     notification: NotificationConfig = field(default_factory=NotificationConfig)
     web: WebConfig = field(default_factory=WebConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
@@ -184,6 +201,8 @@ class ConfigManager:
             # 解析各部分配置
             monitor_data = data.get('monitor', {})
             email_data = data.get('email', {})
+            wechat_data = data.get('wechat', {})
+            qq_data = data.get('qq', {})
             notification_data = data.get('notification', {})
             web_data = data.get('web', {})
             database_data = data.get('database', {})
@@ -213,6 +232,8 @@ class ConfigManager:
             self._config = AppConfig(
                 monitor=MonitorConfig(**monitor_data) if monitor_data else MonitorConfig(),
                 email=EmailConfig(**email_data) if email_data else EmailConfig(),
+                wechat=WeChatConfig(**wechat_data) if wechat_data else WeChatConfig(),
+                qq=QQConfig(**qq_data) if qq_data else QQConfig(),
                 notification=NotificationConfig(**notification_data) if notification_data else NotificationConfig(),
                 web=WebConfig(**web_data) if web_data else WebConfig(),
                 database=DatabaseConfig(**database_data) if database_data else DatabaseConfig(),
@@ -279,6 +300,15 @@ class ConfigManager:
                 'password': self._config.email.password,
                 'receiver': self._config.email.receiver,
             },
+            'wechat': {
+                'enabled': self._config.wechat.enabled,
+                'sendkey': self._config.wechat.sendkey,
+            },
+            'qq': {
+                'enabled': self._config.qq.enabled,
+                'key': self._config.qq.key,
+                'qq': self._config.qq.qq,
+            },
             'notification': {
                 'notify_on_added': self._config.notification.notify_on_added,
                 'notify_on_removed': self._config.notification.notify_on_removed,
@@ -333,6 +363,18 @@ class ConfigManager:
         for key, value in kwargs.items():
             if hasattr(self._config.notification, key):
                 setattr(self._config.notification, key, value)
+
+    def update_wechat_config(self, **kwargs):
+        """更新微信 ServerChan 配置"""
+        for key, value in kwargs.items():
+            if hasattr(self._config.wechat, key):
+                setattr(self._config.wechat, key, value)
+
+    def update_qq_config(self, **kwargs):
+        """更新 QQ Qmsg 酱配置"""
+        for key, value in kwargs.items():
+            if hasattr(self._config.qq, key):
+                setattr(self._config.qq, key, value)
 
 
 # 全局配置管理器实例

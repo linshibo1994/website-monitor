@@ -99,6 +99,10 @@ export const updateSettings = (data) => api.put('/settings', data)
 
 export const sendTestEmail = () => api.post('/settings/test-email')
 
+export const sendTestWechat = () => api.post('/settings/test-wechat')
+
+export const sendTestQQ = () => api.post('/settings/test-qq')
+
 export const reloadConfig = () => api.post('/settings/reload')
 
 // ==================== 健康检查 ====================

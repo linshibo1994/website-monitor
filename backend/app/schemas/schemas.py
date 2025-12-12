@@ -152,6 +152,19 @@ class EmailConfigSchema(BaseModel):
     receiver: str = Field(description="收件人")
 
 
+class WeChatConfigSchema(BaseModel):
+    """微信 ServerChan 配置模式"""
+    enabled: bool = Field(default=False, description="是否启用")
+    sendkey: str = Field(default="", description="ServerChan SendKey")
+
+
+class QQConfigSchema(BaseModel):
+    """QQ Qmsg 酱配置模式"""
+    enabled: bool = Field(default=False, description="是否启用")
+    key: str = Field(default="", description="Qmsg Key")
+    qq: str = Field(default="", description="接收 QQ 号码")
+
+
 class NotificationConfigSchema(BaseModel):
     """通知配置模式"""
     notify_on_added: bool = Field(description="新增时通知")
@@ -163,6 +176,8 @@ class SettingsResponse(BaseModel):
     """设置响应"""
     monitor: MonitorConfigSchema
     email: EmailConfigSchema
+    wechat: WeChatConfigSchema
+    qq: QQConfigSchema
     notification: NotificationConfigSchema
 
 
@@ -170,6 +185,8 @@ class SettingsUpdateRequest(BaseModel):
     """设置更新请求"""
     monitor: Optional[MonitorConfigSchema] = None
     email: Optional[EmailConfigSchema] = None
+    wechat: Optional[WeChatConfigSchema] = None
+    qq: Optional[QQConfigSchema] = None
     notification: Optional[NotificationConfigSchema] = None
 
 

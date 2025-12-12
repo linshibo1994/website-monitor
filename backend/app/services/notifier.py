@@ -1,7 +1,8 @@
 """
-邮件通知模块
-使用 QQ 邮箱 SMTP 发送通知邮件
+通知模块
+支持邮件、微信（ServerChan）与 QQ（Qmsg 酱）多通道通知
 """
+from abc import ABC, abstractmethod
 import smtplib
 import ssl
 from email.mime.text import MIMEText
@@ -10,12 +11,27 @@ from email.header import Header
 from datetime import datetime
 from typing import List, Optional
 from loguru import logger
+import requests
 
 from ..config import get_config
 from .scraper import ProductInfo
 
 
-class EmailNotifier:
+class BaseNotifier(ABC):
+    """通知通道抽象基类"""
+
+    @abstractmethod
+    def send(self, title: str, content: str) -> bool:
+        """发送通知（不同通道可自行解释 content 格式）"""
+        raise NotImplementedError
+
+    @abstractmethod
+    def send_test(self) -> bool:
+        """发送测试通知"""
+        raise NotImplementedError
+
+
+class EmailNotifier(BaseNotifier):
     """邮件通知服务"""
 
     def __init__(self):
@@ -73,6 +89,14 @@ class EmailNotifier:
                     server.quit()
                 except Exception:
                     pass
+
+    def send(self, title: str, content: str) -> bool:
+        """BaseNotifier.send 的邮件实现，等价于 send_email"""
+        return self.send_email(title, content)
+
+    def send_test(self) -> bool:
+        """BaseNotifier.send_test 的邮件实现"""
+        return self.send_test_email()
 
     def send_change_notification(
         self,
@@ -296,5 +320,235 @@ class EmailNotifier:
         return self.send_email(subject, html)
 
 
-# 创建通知服务单例
-email_notifier = EmailNotifier()
+class ServerChanNotifier(BaseNotifier):
+    """微信 ServerChan 通知通道"""
+
+    def __init__(self):
+        self.config = get_config()
+
+    def send(self, title: str, content: str) -> bool:
+        """发送 ServerChan 消息（content 为 Markdown）"""
+        wechat_config = self.config.wechat
+        if not wechat_config.enabled:
+            logger.info("微信通知已禁用")
+            return False
+        if not wechat_config.sendkey:
+            logger.warning("微信 sendkey 为空，无法发送")
+            return False
+
+        url = f"https://sctapi.ftqq.com/{wechat_config.sendkey}.send"
+        try:
+            resp = requests.post(
+                url,
+                data={"title": title, "desp": content},
+                timeout=10,
+            )
+            # ServerChan API 成功响应: {"code": 0, "message": "", "data": {...}}
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    if data.get("code") == 0:
+                        logger.info(f"微信通知发送成功: {title}")
+                        return True
+                    logger.error(f"微信通知发送失败: code={data.get('code')}, message={data.get('message')}")
+                except ValueError:
+                    logger.error(f"微信通知响应解析失败: {resp.text}")
+            else:
+                logger.error(f"微信通知发送失败: status={resp.status_code}, body={resp.text}")
+            return False
+        except requests.Timeout:
+            logger.error("微信通知发送超时")
+            return False
+        except requests.RequestException as e:
+            logger.error(f"微信通知发送异常: {e}")
+            return False
+
+    def send_test(self) -> bool:
+        """发送测试微信通知"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        title = "【Arc'teryx 监控】微信测试通知"
+        desp = f"检测时间：{now}\n\n如果你看到这条消息，说明微信 ServerChan 配置正确。"
+        return self.send(title, desp)
+
+
+class QmsgNotifier(BaseNotifier):
+    """QQ Qmsg 酱通知通道"""
+
+    def __init__(self):
+        self.config = get_config()
+
+    def send(self, title: str, content: str) -> bool:
+        """发送 Qmsg 消息（content 为纯文本/Markdown 均可）"""
+        qq_config = self.config.qq
+        if not qq_config.enabled:
+            logger.info("QQ 通知已禁用")
+            return False
+        if not qq_config.key:
+            logger.warning("QQ key 为空，无法发送")
+            return False
+        if not qq_config.qq:
+            logger.warning("QQ 号码为空，无法发送")
+            return False
+
+        url = f"https://qmsg.zendee.cn/send/{qq_config.key}"
+        msg = f"{title}\n\n{content}"
+        try:
+            resp = requests.post(
+                url,
+                data={"msg": msg, "qq": qq_config.qq},
+                timeout=10,
+            )
+            # Qmsg API 成功响应: {"success": true, "reason": "..."}
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    if data.get("success") is True:
+                        logger.info(f"QQ 通知发送成功: {title}")
+                        return True
+                    logger.error(f"QQ 通知发送失败: reason={data.get('reason')}")
+                except ValueError:
+                    logger.error(f"QQ 通知响应解析失败: {resp.text}")
+            else:
+                logger.error(f"QQ 通知发送失败: status={resp.status_code}, body={resp.text}")
+            return False
+        except requests.Timeout:
+            logger.error("QQ 通知发送超时")
+            return False
+        except requests.RequestException as e:
+            logger.error(f"QQ 通知发送异常: {e}")
+            return False
+
+    def send_test(self) -> bool:
+        """发送测试 QQ 通知"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        title = "【Arc'teryx 监控】QQ 测试通知"
+        content = f"检测时间：{now}\n如果你看到这条消息，说明 QQ Qmsg 酱配置正确。"
+        return self.send(title, content)
+
+
+class MultiChannelNotifier:
+    """多通道通知聚合器，对外保持旧接口不变"""
+
+    def __init__(self):
+        self.config = get_config()
+        self.email_notifier = EmailNotifier()
+        self.wechat_notifier = ServerChanNotifier()
+        self.qq_notifier = QmsgNotifier()
+
+    def _build_change_markdown(
+        self,
+        previous_count: int,
+        current_count: int,
+        added_products: List[ProductInfo],
+        removed_products: List[ProductInfo],
+    ) -> str:
+        """构建变化通知的 Markdown/文本内容"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        change_diff = current_count - previous_count
+        change_sign = "+" if change_diff >= 0 else ""
+
+        parts: List[str] = [
+            f"检测时间：{now}",
+            f"数量变化：{previous_count} → {current_count}（{change_sign}{change_diff}）",
+        ]
+
+        if added_products:
+            parts.append(f"\n新增商品（{len(added_products)}件）：")
+            for i, p in enumerate(added_products, 1):
+                price_text = f"${p.price:.2f}" if p.price else "价格未知"
+                if p.original_price and p.original_price > (p.price or 0):
+                    price_text += f"（原价 ${p.original_price:.2f}，促销）"
+                parts.append(f"{i}. {p.name} - {price_text}")
+                if p.url:
+                    parts.append(f"   链接：{p.url}")
+
+        if removed_products:
+            parts.append(f"\n下架商品（{len(removed_products)}件）：")
+            for i, p in enumerate(removed_products, 1):
+                price_text = f"${p.price:.2f}" if p.price else "价格未知"
+                parts.append(f"{i}. {p.name} - {price_text}")
+
+        parts.append(f"\n监控地址：{self.config.monitor.url}")
+        return "\n".join(parts)
+
+    def _build_error_markdown(self, error_message: str) -> str:
+        """构建错误通知内容"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return f"时间：{now}\n\n错误信息：\n{error_message}"
+
+    def send_email(self, subject: str, html_content: str) -> bool:
+        """兼容旧代码的邮件发送接口（仅邮件通道）"""
+        return self.email_notifier.send_email(subject, html_content)
+
+    def send_change_notification(
+        self,
+        previous_count: int,
+        current_count: int,
+        added_products: List[ProductInfo],
+        removed_products: List[ProductInfo],
+    ) -> bool:
+        """向所有启用通道发送商品变化通知"""
+        # 先走邮件原有逻辑，保证行为一致
+        email_sent = self.email_notifier.send_change_notification(
+            previous_count,
+            current_count,
+            added_products,
+            removed_products,
+        )
+
+        notification_config = self.config.notification
+        if (added_products and not notification_config.notify_on_added) or \
+           (removed_products and not notification_config.notify_on_removed) or \
+           (not added_products and not removed_products):
+            return email_sent
+
+        # 其他通道使用文本/Markdown
+        change_text = []
+        if added_products:
+            change_text.append(f"+{len(added_products)}件新品")
+        if removed_products:
+            change_text.append(f"-{len(removed_products)}件下架")
+        title = f"Arc'teryx 商品变化：{', '.join(change_text)} | 当前共{current_count}件"
+        content = self._build_change_markdown(
+            previous_count,
+            current_count,
+            added_products,
+            removed_products,
+        )
+
+        wechat_sent = self.wechat_notifier.send(title, content)
+        qq_sent = self.qq_notifier.send(title, content)
+
+        return any([email_sent, wechat_sent, qq_sent])
+
+    def send_error_notification(self, error_message: str) -> bool:
+        """向所有启用通道发送错误告警通知"""
+        email_sent = self.email_notifier.send_error_notification(error_message)
+
+        if not self.config.notification.notify_on_error:
+            return email_sent
+
+        title = "Arc'teryx 监控告警：系统运行异常"
+        content = self._build_error_markdown(error_message)
+
+        wechat_sent = self.wechat_notifier.send(title, content)
+        qq_sent = self.qq_notifier.send(title, content)
+
+        return any([email_sent, wechat_sent, qq_sent])
+
+    def send_test_email(self) -> bool:
+        """发送测试邮件（旧接口）"""
+        return self.email_notifier.send_test_email()
+
+    def send_test_wechat(self) -> bool:
+        """发送测试微信通知"""
+        return self.wechat_notifier.send_test()
+
+    def send_test_qq(self) -> bool:
+        """发送测试 QQ 通知"""
+        return self.qq_notifier.send_test()
+
+
+# 创建多通道通知服务单例，并兼容旧导入名称
+multi_channel_notifier = MultiChannelNotifier()
+email_notifier = multi_channel_notifier
