@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+import os
 import re
 import json
 from abc import ABC, abstractmethod
@@ -129,7 +131,7 @@ class BaseDetector(ABC):
 
 
 class DaytonaParkDetector(BaseDetector):
-    """Daytona Park 网站检测器"""
+    """Daytona Park 网站检测器 - 使用 Playwright 绕过反爬虫"""
 
     # 库存状态CSS类映射
     STOCK_CLASS_MAP = {
@@ -138,12 +140,133 @@ class DaytonaParkDetector(BaseDetector):
         'block-goods-stockstatus-outofstock': ('out_of_stock', '在库なし'),
     }
 
+    def __init__(self, timeout: int = 30):
+        super().__init__(timeout)
+        self.is_docker = self._is_running_in_docker()
+
+    def _is_running_in_docker(self) -> bool:
+        """检测是否在 Docker 容器中运行"""
+        if os.path.exists('/.dockerenv'):
+            return True
+        try:
+            with open('/proc/1/cgroup', 'r') as f:
+                return 'docker' in f.read()
+        except:
+            return False
+
     def get_website_type(self) -> str:
         return "daytona_park"
 
+    def _fetch_page_with_playwright(self, url: str) -> Tuple[Optional[str], Optional[int], Optional[str]]:
+        """使用 Playwright 获取页面内容"""
+        try:
+            # 在同步上下文中运行异步代码
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self._async_fetch_page(url))
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.exception(f"Playwright 获取页面失败: {url}")
+            return None, None, f"Playwright 获取失败: {str(e)}"
+
+    async def _async_fetch_page(self, url: str) -> Tuple[Optional[str], Optional[int], Optional[str]]:
+        """异步获取页面内容"""
+        from playwright.async_api import async_playwright
+
+        browser = None
+        playwright_instance = None
+
+        try:
+            playwright_instance = await async_playwright().start()
+
+            browser_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-setuid-sandbox',
+            ]
+
+            has_display = os.environ.get('DISPLAY') is not None
+
+            if self.is_docker and has_display:
+                logger.debug(f"Docker 环境 (DISPLAY={os.environ.get('DISPLAY')}): 使用 Xvfb 虚拟显示")
+                browser = await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+            else:
+                logger.debug("使用 headless 模式")
+                browser = await playwright_instance.chromium.launch(
+                    headless=True,
+                    args=browser_args
+                )
+
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                locale='ja-JP',
+                timezone_id='Asia/Tokyo',
+                ignore_https_errors=True,  # 忽略 SSL 证书错误
+            )
+
+            # 隐藏 webdriver 属性
+            await context.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            ''')
+
+            page = await context.new_page()
+
+            # 设置请求超时
+            page.set_default_timeout(self.timeout * 1000)
+
+            # 访问页面
+            response = await page.goto(url, wait_until='domcontentloaded')
+
+            if response is None:
+                return None, None, "页面加载失败"
+
+            status_code = response.status
+
+            if status_code >= 400:
+                error_msg = f"HTTP {status_code}"
+                if status_code == 403:
+                    error_msg = "访问被拒绝(403)"
+                elif status_code == 404:
+                    error_msg = "页面不存在(404)"
+                return None, status_code, error_msg
+
+            # 等待页面内容加载（增加超时时间到 30 秒）
+            try:
+                await page.wait_for_load_state('networkidle', timeout=30000)
+            except Exception:
+                # 如果 networkidle 超时，尝试等待关键元素
+                logger.debug("networkidle 超时，尝试等待页面内容")
+                await asyncio.sleep(3)
+
+            # 获取页面 HTML
+            html = await page.content()
+
+            return html, status_code, None
+
+        except Exception as e:
+            logger.error(f"Playwright 异步获取页面失败: {e}")
+            return None, None, f"获取页面失败: {str(e)}"
+
+        finally:
+            if browser:
+                await browser.close()
+            if playwright_instance:
+                await playwright_instance.stop()
+
     def check(self, url: str) -> DetectionResult:
         """检测 Daytona Park 商品页面"""
-        html, status_code, error = self._fetch_page(url)
+        # 使用 Playwright 获取页面
+        html, status_code, error = self._fetch_page_with_playwright(url)
 
         if error:
             return DetectionResult(status='error', error=error)
@@ -341,14 +464,127 @@ class DaytonaParkDetector(BaseDetector):
 
 
 class RakutenDetector(BaseDetector):
-    """乐天网站检测器"""
+    """乐天网站检测器 - 使用 Playwright 绕过反爬虫"""
+
+    def __init__(self, timeout: int = 30):
+        super().__init__(timeout)
+        self.is_docker = self._is_running_in_docker()
+
+    def _is_running_in_docker(self) -> bool:
+        """检测是否在 Docker 容器中运行"""
+        if os.path.exists('/.dockerenv'):
+            return True
+        try:
+            with open('/proc/1/cgroup', 'r') as f:
+                return 'docker' in f.read()
+        except:
+            return False
 
     def get_website_type(self) -> str:
         return "rakuten"
 
+    def _fetch_page_with_playwright(self, url: str) -> Tuple[Optional[str], Optional[int], Optional[str]]:
+        """使用 Playwright 获取页面内容"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self._async_fetch_page(url))
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.exception(f"Playwright 获取页面失败: {url}")
+            return None, None, f"Playwright 获取失败: {str(e)}"
+
+    async def _async_fetch_page(self, url: str) -> Tuple[Optional[str], Optional[int], Optional[str]]:
+        """异步获取页面内容"""
+        from playwright.async_api import async_playwright
+
+        browser = None
+        playwright_instance = None
+
+        try:
+            playwright_instance = await async_playwright().start()
+
+            browser_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-setuid-sandbox',
+            ]
+
+            has_display = os.environ.get('DISPLAY') is not None
+
+            if self.is_docker and has_display:
+                logger.debug(f"Docker 环境 (DISPLAY={os.environ.get('DISPLAY')}): 使用 Xvfb 虚拟显示")
+                browser = await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+            else:
+                logger.debug("使用 headless 模式")
+                browser = await playwright_instance.chromium.launch(
+                    headless=True,
+                    args=browser_args
+                )
+
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                locale='ja-JP',
+                timezone_id='Asia/Tokyo',
+                ignore_https_errors=True,  # 忽略 SSL 证书错误
+            )
+
+            # 隐藏 webdriver 属性
+            await context.add_init_script('''
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            ''')
+
+            page = await context.new_page()
+            page.set_default_timeout(self.timeout * 1000)
+
+            response = await page.goto(url, wait_until='domcontentloaded')
+
+            if response is None:
+                return None, None, "页面加载失败"
+
+            status_code = response.status
+
+            # 404 是乐天商品下架的正常状态，不应视为错误
+            if status_code >= 400 and status_code != 404:
+                error_msg = f"HTTP {status_code}"
+                if status_code == 403:
+                    error_msg = "访问被拒绝(403)"
+                return None, status_code, error_msg
+
+            # 等待页面内容加载
+            try:
+                await page.wait_for_load_state('networkidle', timeout=30000)
+            except Exception:
+                logger.debug("networkidle 超时，尝试等待页面内容")
+                await asyncio.sleep(3)
+
+            html = await page.content()
+            return html, status_code, None
+
+        except Exception as e:
+            logger.error(f"Playwright 异步获取页面失败: {e}")
+            return None, None, f"获取页面失败: {str(e)}"
+
+        finally:
+            if browser:
+                await browser.close()
+            if playwright_instance:
+                await playwright_instance.stop()
+
     def check(self, url: str) -> DetectionResult:
         """检测乐天商品页面"""
-        html, status_code, error = self._fetch_page(url)
+        # 使用 Playwright 获取页面
+        html, status_code, error = self._fetch_page_with_playwright(url)
 
         if error:
             return DetectionResult(status='error', error=error)
