@@ -4,6 +4,7 @@ Scheels 商品库存监控模块
 """
 import asyncio
 import os
+import re
 from typing import Optional, List
 from datetime import datetime
 from loguru import logger
@@ -408,54 +409,70 @@ class ScheelsInventoryScraper:
     async def _check_coming_soon(self, page) -> bool:
         """检测页面是否为 Coming Soon 状态"""
         try:
-            # 首先检查是否有正常商品的标志（尺码选择器或加购按钮）
-            # 如果有，则一定不是 Coming Soon
-            try:
-                size_selector = page.locator('button:has-text("Small"), button:has-text("Medium"), button:has-text("Large")').first
-                has_size_selector = await size_selector.is_visible()
-                if has_size_selector:
-                    logger.debug("检测到尺码选择器，商品已上架")
-                    return False
-            except:
-                pass
-
-            try:
-                add_to_cart = page.locator('button:has-text("Add to Cart"), button:has-text("ADD TO CART")').first
-                has_add_to_cart = await add_to_cart.is_visible()
-                if has_add_to_cart:
-                    logger.debug("检测到加购按钮，商品已上架")
-                    return False
-            except:
-                pass
-
-            # 没有正常购买功能，检测是否有 Coming Soon 标记
             html_content = await page.content()
-            import re
 
-            # 方法1: 检测 Next.js 数据中的 isComingSoon 标记（最可靠）
-            if re.search(r'\\"isComingSoon\\":true', html_content) or re.search(r'"isComingSoon":true', html_content):
+            # 优先检测 Coming Soon 标记（比检测加购按钮更可靠）
+            # 方法1: 检测 Next.js 数据中的 isComingSoon 标记（最可靠，容忍空格）
+            if re.search(r'\\"isComingSoon\\":\s*true', html_content) or re.search(r'"isComingSoon":\s*true', html_content):
                 logger.info("检测到 Coming Soon 标记 (isComingSoon: true)")
                 return True
 
-            # 方法2: 检测 Coming Soon 按钮
+            # 方法2: 检测 Coming Soon 标题（h2 级别，优先级很高）
+            try:
+                coming_soon_heading = page.locator('h2:has-text("Coming Soon"), h2:has-text("COMING SOON")').first
+                if await coming_soon_heading.is_visible():
+                    logger.info("检测到 Coming Soon 标题")
+                    return True
+            except Exception:
+                pass
+
+            # 方法3: 检测 Coming Soon 按钮
             try:
                 coming_soon_button = page.locator('button:has-text("Coming Soon"), button:has-text("COMING SOON")').first
                 if await coming_soon_button.is_visible():
                     logger.info("检测到 Coming Soon 按钮")
                     return True
-            except:
+            except Exception:
                 pass
 
-            # 方法3: 检测主要内容区域的 Coming Soon 文本（而非整个页面）
+            # 方法4: 检测主要内容区域的 Coming Soon 文本（限定在商品信息区域）
             try:
-                # 查找商品主区域的 Coming Soon 文本
-                main_content = page.locator('[class*="product"], [class*="pdp"], main').first
-                if await main_content.is_visible():
-                    main_text = await main_content.text_content()
-                    if main_text and 'coming soon' in main_text.lower():
-                        logger.info("检测到商品区域 Coming Soon 文本")
-                        return True
-            except:
+                # 检测特定的 Coming Soon 提示区域，避免误匹配推荐商品
+                coming_soon_notice = page.locator('[class*="product"] >> text=/This Product Is Coming Soon/i').first
+                if await coming_soon_notice.is_visible():
+                    logger.info("检测到 'This Product Is Coming Soon' 提示")
+                    return True
+            except Exception:
+                pass
+
+            # 如果没有检测到 Coming Soon，再检查是否有正常可购买的标志
+            # 只有当加购按钮可见且未被禁用时，才能认为商品已正常上架
+            try:
+                add_to_cart = page.locator('button:has-text("Add to Cart"), button:has-text("ADD TO CART")').first
+                if await add_to_cart.is_visible():
+                    is_disabled = await add_to_cart.is_disabled()
+                    if not is_disabled:
+                        logger.debug("检测到可用的加购按钮，商品已上架")
+                        return False
+                    else:
+                        logger.debug("加购按钮存在但被禁用，继续检测其他标志")
+            except Exception:
+                pass
+
+            # 检查尺码选择器作为辅助判断（使用 SIZE_NORMALIZE 中的尺码名称）
+            size_names = list(self.SIZE_NORMALIZE.keys())
+            size_selector_pattern = ', '.join([f'button:has-text("{size}")' for size in size_names])
+            try:
+                size_buttons = page.locator(size_selector_pattern)
+                count = await size_buttons.count()
+                if count > 0:
+                    # 检查是否有任何可选尺码（非禁用）
+                    for i in range(count):
+                        btn = size_buttons.nth(i)
+                        if await btn.is_visible() and not await btn.is_disabled():
+                            logger.debug("检测到可选尺码，商品已上架")
+                            return False
+            except Exception:
                 pass
 
             return False
@@ -466,7 +483,6 @@ class ScheelsInventoryScraper:
     def _extract_sku_from_url(self, url: str) -> str:
         """从URL中提取商品ID"""
         # URL格式: https://www.scheels.com/p/62355577847
-        import re
         match = re.search(r'/p/(\d+)', url)
         return match.group(1) if match else ''
 
@@ -483,7 +499,6 @@ class ScheelsInventoryScraper:
 
             # 方法2: 从页面 HTML 中提取
             html_content = await page.content()
-            import re
 
             # 从 Next.js 数据中提取商品名称
             # 格式: \"name\":\"Men's Arc'teryx Thorium Hooded Puffer Jacket\"
@@ -523,7 +538,6 @@ class ScheelsInventoryScraper:
 
     async def _get_current_color(self, page) -> str:
         """获取当前页面已选颜色名称"""
-        import re
         try:
             html_content = await page.content()
 
@@ -582,7 +596,6 @@ class ScheelsInventoryScraper:
 
             # 从 URL 提取当前 SKU
             current_url = page.url
-            import re
             url_match = re.search(r'/p/(\d+)', current_url)
             current_sku = url_match.group(1) if url_match else ''
             sku_prefix = current_sku[:9] if len(current_sku) >= 9 else current_sku
