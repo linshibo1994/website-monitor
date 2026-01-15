@@ -628,7 +628,8 @@ class ScheelsInventoryScraper:
                         variant_sku=sku,
                         size=normalized_size,
                         stock_status=stock_status,
-                        color_name=current_color
+                        color_name=current_color,
+                        quantity=quantity if quantity > 0 else None
                     ))
                     logger.debug(f"找到尺码: {size_name} ({normalized_size}), SKU: {sku}, 状态: {stock_status}")
 
@@ -684,7 +685,8 @@ class ScheelsInventoryScraper:
                     old_status=old_status,
                     new_status=new_status,
                     became_available=not was_available and is_available,
-                    color_name=variant.color_name
+                    color_name=variant.color_name,
+                    quantity=variant.quantity
                 ))
 
                 logger.info(

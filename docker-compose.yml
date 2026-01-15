@@ -18,7 +18,8 @@ services:
       dockerfile: Dockerfile
     container_name: arcteryx-monitor
     restart: unless-stopped
-    # 使用宿主机网络模式，解决 Rakuten 等网站的反爬虫问题
+    # 使用宿主机网络模式，确保生产环境网络稳定性
+    # 本地开发请使用 http://localhost:7080 访问
     network_mode: "host"
     volumes:
       # 持久化数据库和日志

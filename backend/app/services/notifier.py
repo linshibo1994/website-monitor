@@ -3,18 +3,114 @@
 支持邮件、微信（ServerChan）与 QQ（Qmsg 酱）多通道通知
 """
 from abc import ABC, abstractmethod
+import html
 import smtplib
 import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 from loguru import logger
 import requests
 
 from ..config import get_config
 from .scraper import ProductInfo
+from .inventory_scraper import InventoryChange
+
+
+def _normalize_inventory_status(status: str) -> str:
+    """库存状态标准化（用于展示与判定）"""
+    return (status or "").strip()
+
+
+def _inventory_status_display(status: str) -> str:
+    """库存状态展示文案"""
+    key = _normalize_inventory_status(status).lower()
+    if key in {"instock", "in_stock"}:
+        return "有货"
+    if key in {"outofstock", "out_of_stock", "oos"}:
+        return "无货"
+    if key in {"lowstock", "low_stock"}:
+        return "库存紧张"
+    if key in {"unknown", ""}:
+        return "未知"
+    # 兜底：直接展示原始状态，便于排查站点差异
+    return _normalize_inventory_status(status)
+
+
+def _inventory_status_is_available(status: str) -> Optional[bool]:
+    """判断状态是否可购买（未知返回 None）"""
+    key = _normalize_inventory_status(status).lower()
+    if key in {"instock", "in_stock", "lowstock", "low_stock"}:
+        return True
+    if key in {"outofstock", "out_of_stock", "oos"}:
+        return False
+    if key in {"unknown", ""}:
+        return None
+    return None
+
+
+def _inventory_change_type(change: InventoryChange) -> str:
+    """计算变化类型标识（补货/售罄/状态变化）"""
+    try:
+        if getattr(change, "became_available", False) is True:
+            return "补货"
+    except Exception:
+        # became_available 字段异常时继续走兼容逻辑
+        pass
+
+    old_available = _inventory_status_is_available(getattr(change, "old_status", ""))
+    new_available = _inventory_status_is_available(getattr(change, "new_status", ""))
+    if old_available is False and new_available is True:
+        return "补货"
+    if old_available is True and new_available is False:
+        return "售罄"
+    return "状态变化"
+
+
+def _inventory_notification_title(changes: List[InventoryChange]) -> str:
+    """根据变化列表生成通知类型标题（补货通知/售罄通知/库存变化通知）"""
+    types = {_inventory_change_type(c) for c in (changes or [])}
+    if types == {"补货"}:
+        return "补货通知"
+    if types == {"售罄"}:
+        return "售罄通知"
+    return "库存变化通知"
+
+
+def _format_inventory_quantity(change: InventoryChange) -> str:
+    """
+    格式化库存数量展示（若无数量信息则返回空串）
+
+    说明：InventoryChange 在不同站点/抓取器中可能会被动态附加数量字段，
+    这里做最大兼容：优先读取 new_quantity/quantity。
+    """
+    quantity = getattr(change, "new_quantity", None)
+    if quantity is None:
+        quantity = getattr(change, "quantity", None)
+
+    if quantity is None:
+        return ""
+
+    try:
+        if isinstance(quantity, bool):
+            return ""
+        if isinstance(quantity, int):
+            return f" (库存: {quantity}件)"
+        if isinstance(quantity, float):
+            return f" (库存: {int(quantity)}件)"
+        if isinstance(quantity, str):
+            text = quantity.strip()
+            if not text:
+                return ""
+            if "件" in text:
+                return f" (库存: {text})"
+            return f" (库存: {text}件)"
+    except Exception:
+        return ""
+
+    return ""
 
 
 class BaseNotifier(ABC):
@@ -137,6 +233,184 @@ class EmailNotifier(BaseNotifier):
         )
 
         return self.send_email(subject, html_content)
+
+    def send_inventory_change_notification(
+        self,
+        product_name: str,
+        product_url: str,
+        changes: List[InventoryChange],
+        site_name: str = "Arc'teryx"  # 支持 SCHEELS, Rakuten 等
+    ) -> bool:
+        """
+        发送库存变化通知（补货/售罄）
+
+        Args:
+            product_name: 商品名称
+            product_url: 商品链接
+            changes: 库存变化列表
+            site_name: 站点来源名称（如 Arc'teryx / SCHEELS / Rakuten）
+
+        Returns:
+            是否发送成功（仅表示邮件通道结果）
+        """
+        if not changes:
+            logger.info("无库存变化，不发送通知")
+            return False
+
+        try:
+            notice_title = _inventory_notification_title(changes)
+            subject = f"【{notice_title}】{site_name} {product_name}".strip()
+
+            html_content = self._build_inventory_change_email(
+                product_name=product_name,
+                product_url=product_url,
+                changes=changes,
+                site_name=site_name,
+            )
+
+            return self.send_email(subject, html_content)
+        except Exception as e:
+            logger.error(f"构建/发送库存变化通知失败: {type(e).__name__}: {e}")
+            return False
+
+    def _build_inventory_change_email(
+        self,
+        product_name: str,
+        product_url: str,
+        changes: List[InventoryChange],
+        site_name: str,
+    ) -> str:
+        """构建库存变化通知邮件内容（HTML）"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        notice_title = _inventory_notification_title(changes)
+
+        # 对动态内容进行 HTML 转义，防止 XSS
+        safe_product_name = html.escape(product_name or "")
+        safe_site_name = html.escape(site_name or "")
+        safe_product_url = html.escape(product_url or "")
+
+        # 根据通知类型选择配色
+        if notice_title == "补货通知":
+            gradient = "linear-gradient(135deg, #27ae60 0%, #2ecc71 100%)"
+            header_icon = "[补货]"
+        elif notice_title == "售罄通知":
+            gradient = "linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)"
+            header_icon = "[售罄]"
+        else:
+            gradient = "linear-gradient(135deg, #3498db 0%, #2980b9 100%)"
+            header_icon = "[变化]"
+
+        # 按颜色分组（保持插入顺序）
+        grouped: Dict[str, List[InventoryChange]] = {}
+        for c in changes:
+            color = (getattr(c, "color_name", "") or "").strip()
+            grouped.setdefault(color, []).append(c)
+
+        sections: List[str] = []
+        has_color = any(grouped.keys())
+
+        # 统一渲染表格（每个颜色一张表）
+        for color_name, items in grouped.items():
+            title_text = ""
+            if has_color:
+                display_color = html.escape(color_name or "未指定")
+                title_text = f"""
+                <h3 style="background: #2c3e50; color: white; padding: 10px 15px; margin: 0; border-radius: 5px 5px 0 0;">
+                    颜色: {display_color}
+                </h3>
+                """
+
+            rows: List[str] = []
+            for change in items:
+                size = html.escape((getattr(change, "size", "") or "").strip() or "-")
+                old_text = html.escape(_inventory_status_display(getattr(change, "old_status", "")))
+                new_text = html.escape(_inventory_status_display(getattr(change, "new_status", "")))
+                change_text = f"{old_text} -> {new_text}"
+
+                quantity_text = _format_inventory_quantity(change)
+                quantity_cell = html.escape(quantity_text.replace(" (库存: ", "").replace(")", "") if quantity_text else "-")
+
+                change_type = html.escape(_inventory_change_type(change))
+
+                rows.append(f"""
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">
+                        <strong>{size}</strong>
+                    </td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">
+                        {change_text}
+                    </td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; color: #555;">
+                        {quantity_cell}
+                    </td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">
+                        {change_type}
+                    </td>
+                </tr>
+                """)
+
+            sections.append(f"""
+            <div style="margin: 20px 0;">
+                {title_text}
+                <table style="width: 100%; border-collapse: collapse; background: #f8f9fa; border-radius: {('0 0 5px 5px' if has_color else '5px')}; overflow: hidden;">
+                    <tr style="background: #ecf0f1;">
+                        <th style="padding: 10px; text-align: center;">尺寸</th>
+                        <th style="padding: 10px; text-align: center;">状态变化</th>
+                        <th style="padding: 10px; text-align: center;">库存数量</th>
+                        <th style="padding: 10px; text-align: center;">变化类型</th>
+                    </tr>
+                    {''.join(rows)}
+                </table>
+            </div>
+            """)
+
+        url_html = ""
+        if safe_product_url:
+            url_html = f'<a href="{safe_product_url}" style="color: #3498db; text-decoration: none;">{safe_product_url}</a>'
+
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: {gradient}; padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 20px;">
+                <h1 style="color: white; margin: 0; font-size: 24px;">{header_icon} {notice_title}</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">站点：{safe_site_name}</p>
+            </div>
+
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                <h2 style="margin: 0 0 12px 0; color: #333;">{safe_product_name}</h2>
+                <table style="width: 100%;">
+                    <tr>
+                        <td style="padding: 6px 0;">
+                            <span style="color: #666;">商品链接</span><br>
+                            <strong>{url_html or '（无）'}</strong>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 0;">
+                            <span style="color: #666;">通知时间</span><br>
+                            <strong>{now}</strong>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            {''.join(sections)}
+
+            <div style="text-align: center; margin-top: 20px;">
+                <p style="color: #999; font-size: 12px;">
+                    此邮件由库存监控系统自动发送
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+
+        return html_content
 
     def _build_change_email(
         self,
@@ -476,6 +750,54 @@ class MultiChannelNotifier:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return f"时间：{now}\n\n错误信息：\n{error_message}"
 
+    def _build_inventory_change_markdown(
+        self,
+        product_name: str,
+        product_url: str,
+        changes: List[InventoryChange],
+        site_name: str,
+    ) -> str:
+        """构建库存变化通知的 Markdown/文本内容（用于微信/QQ）"""
+        parts: List[str] = []
+        if product_name:
+            parts.append(f"商品：{product_name}")
+        if site_name:
+            parts.append(f"站点：{site_name}")
+        if product_url:
+            parts.append(f"链接：{product_url}")
+        parts.append("")  # 与明细分隔，提升可读性
+
+        # 按颜色分组（保持插入顺序）
+        grouped: dict = {}
+        for c in changes or []:
+            color = (getattr(c, "color_name", "") or "").strip()
+            grouped.setdefault(color, []).append(c)
+
+        has_color = any(k for k in grouped.keys())
+
+        first_group = True
+        for color_name, items in grouped.items():
+            if has_color:
+                if not first_group:
+                    parts.append("")  # 分隔不同颜色分组
+                parts.append(f"颜色: {color_name or '未指定'}")
+
+            for change in items:
+                size = (getattr(change, "size", "") or "").strip() or "-"
+                old_text = _inventory_status_display(getattr(change, "old_status", ""))
+                new_text = _inventory_status_display(getattr(change, "new_status", ""))
+                change_type = _inventory_change_type(change)
+
+                quantity_text = _format_inventory_quantity(change).strip()
+                extras = [x for x in [quantity_text, f"【{change_type}】"] if x]
+                extra_text = f" {' '.join(extras)}" if extras else ""
+
+                parts.append(f"尺码 {size}: {old_text} -> {new_text}{extra_text}")
+
+            first_group = False
+
+        return "\n".join(parts).strip()
+
     def send_email(self, subject: str, html_content: str) -> bool:
         """兼容旧代码的邮件发送接口（仅邮件通道）"""
         return self.email_notifier.send_email(subject, html_content)
@@ -515,6 +837,43 @@ class MultiChannelNotifier:
             added_products,
             removed_products,
         )
+
+        wechat_sent = self.wechat_notifier.send(title, content)
+        qq_sent = self.qq_notifier.send(title, content)
+
+        return any([email_sent, wechat_sent, qq_sent])
+
+    def send_inventory_change_notification(
+        self,
+        product_name: str,
+        product_url: str,
+        changes: List[InventoryChange],
+        site_name: str = "Arc'teryx"  # 支持 SCHEELS, Rakuten 等
+    ) -> bool:
+        """向所有启用通道发送库存变化通知（补货/售罄）"""
+        # 邮件通道：走 EmailNotifier 的统一实现
+        email_sent = self.email_notifier.send_inventory_change_notification(
+            product_name=product_name,
+            product_url=product_url,
+            changes=changes,
+            site_name=site_name,
+        )
+
+        if not changes:
+            return email_sent
+
+        try:
+            notice_title = _inventory_notification_title(changes)
+            title = f"【{notice_title}】{site_name} {product_name}".strip()
+            content = self._build_inventory_change_markdown(
+                product_name=product_name,
+                product_url=product_url,
+                changes=changes,
+                site_name=site_name,
+            )
+        except Exception as e:
+            logger.error(f"构建库存变化多通道通知失败: {type(e).__name__}: {e}")
+            return email_sent
 
         wechat_sent = self.wechat_notifier.send(title, content)
         qq_sent = self.qq_notifier.send(title, content)

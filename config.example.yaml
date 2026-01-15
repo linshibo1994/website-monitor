@@ -30,11 +30,11 @@ email:
   # SMTP端口（SSL）
   smtp_port: 465
   # 发件人邮箱
-  sender: "841466403@qq.com"
+  sender: "your_qq_number@qq.com"
   # QQ邮箱授权码（非QQ密码，需要在QQ邮箱设置中获取）
-  password: "ywrqxlmxgwwxbbcj"
+  password: "your_authorization_code"
   # 收件人邮箱（可以和发件人相同）
-  receiver: "564151906@qq.com"
+  receiver: "receiver@example.com"
 
 # 通知设置
 notification:

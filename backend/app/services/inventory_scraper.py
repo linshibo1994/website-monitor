@@ -89,6 +89,7 @@ class InventoryChange:
     new_status: str              # 新状态
     became_available: bool       # 是否变为有库存
     color_name: str = ""         # 颜色名称
+    quantity: Optional[int] = None  # 新状态的库存数量（如果有）
 
 
 class ArcteryxInventoryScraper:
@@ -1001,7 +1002,8 @@ class ArcteryxInventoryScraper:
                     old_status=old_status,
                     new_status=new_status,
                     became_available=not was_available and is_available,
-                    color_name=variant.color_name
+                    color_name=variant.color_name,
+                    quantity=variant.quantity
                 ))
 
                 logger.info(

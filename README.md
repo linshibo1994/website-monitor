@@ -141,7 +141,7 @@ docker compose ps
 docker compose logs -f
 
 # 检查 API 健康状态
-curl http://localhost:8080/api/health
+curl http://localhost:7080/api/health
 ```
 
 ### Docker 常用命令
@@ -177,8 +177,25 @@ docker compose down && docker compose up -d --build
 
 | 服务名 | 容器名 | 功能 | 端口 |
 |-------|--------|------|------|
-| `monitor` | `arcteryx-monitor` | Web API 服务 | 8080 |
+| `monitor` | `arcteryx-monitor` | Web API 服务 | 7080 |
 | `monitor-scheduler` | `arcteryx-scheduler` | 定时监控任务（每10分钟） | - |
+| `inventory-monitor` | `arcteryx-inventory-monitor` | Arc'teryx 库存监控 | - |
+| `rakuten-monitor` | `rakuten-monitor` | 乐天商品监控 | - |
+
+### 访问 Web 界面
+
+**生产环境（服务器部署）**：
+```
+http://服务器IP:7080
+```
+
+**本地开发环境**：
+```
+http://localhost:7080
+```
+
+> **注意**：`monitor` 服务使用 `network_mode: "host"` 以确保网络稳定性。
+> 如果使用 Orb 等容器管理工具需要虚拟域名访问，请参考项目中的 `docker-compose.override.yml` 文件。
 
 ### 数据持久化
 
@@ -277,9 +294,9 @@ docker compose logs -f
 docker compose exec monitor python -m backend.app.services.monitor --once
 
 # 访问 API
-curl http://localhost:8080/api/health
-curl http://localhost:8080/api/products
-curl http://localhost:8080/api/history
+curl http://localhost:7080/api/health
+curl http://localhost:7080/api/products
+curl http://localhost:7080/api/history
 ```
 
 ### 命令行方式（本地部署）
@@ -336,7 +353,7 @@ npm run dev
 **添加监控商品**
 ```bash
 # 监控所有尺寸
-curl -X POST http://localhost:8080/api/inventory/products \
+curl -X POST http://localhost:7080/api/inventory/products \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://arcteryx.com/us/en/shop/mens/beta-sl-jacket-9685",
@@ -344,7 +361,7 @@ curl -X POST http://localhost:8080/api/inventory/products \
   }'
 
 # 只监控特定尺寸（如 M 和 L）
-curl -X POST http://localhost:8080/api/inventory/products \
+curl -X POST http://localhost:7080/api/inventory/products \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://arcteryx.com/us/en/shop/mens/beta-sl-jacket-9685",
@@ -355,17 +372,17 @@ curl -X POST http://localhost:8080/api/inventory/products \
 
 **查看监控状态**
 ```bash
-curl http://localhost:8080/api/inventory/status
+curl http://localhost:7080/api/inventory/status
 ```
 
 **手动执行一次库存检查**
 ```bash
-curl -X POST http://localhost:8080/api/inventory/check
+curl -X POST http://localhost:7080/api/inventory/check
 ```
 
 **移除监控商品**
 ```bash
-curl -X DELETE "http://localhost:8080/api/inventory/products?url=https://arcteryx.com/..."
+curl -X DELETE "http://localhost:7080/api/inventory/products?url=https://arcteryx.com/..."
 ```
 
 **支持的 URL 格式**：
@@ -403,7 +420,7 @@ notification:
 # Web服务配置
 web:
   host: "127.0.0.1"
-  port: 8080
+  port: 7080
 
 # 日志配置
 logging:
