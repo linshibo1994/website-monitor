@@ -141,7 +141,7 @@ class InventoryMonitorService:
             logger.info(f"开始执行单个商品的即时库存抓取: {url}")
 
             if 'scheels.com' in url:
-                new_inventory = await check_scheels_inventory(url)
+                new_inventory = await scheels_scraper.check_inventory(url, max_retries=1)
             else:
                 new_inventory = await check_product_inventory(url)
 

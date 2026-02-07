@@ -19,9 +19,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TZ=Asia/Shanghai
 
-# 安装 Xvfb（虚拟显示）用于绕过 headless 检测
+# 安装 Xvfb（虚拟显示）和 x11-utils（用于验证显示）
 RUN apt-get update && apt-get install -y \
     xvfb \
+    x11-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件
@@ -54,6 +55,22 @@ fi\n\
 \n\
 # 从环境变量读取端口，默认 8080（Cloud Run 标准）\n\
 PORT=${PORT:-8080}\n\
+\n\
+# 如果设置了 DISPLAY 环境变量，启动 Xvfb 虚拟显示\n\
+if [ -n "${DISPLAY}" ]; then\n\
+    DISPLAY_NUM="${DISPLAY#:}"\n\
+    echo "Starting Xvfb on display ${DISPLAY}..."\n\
+    rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"\n\
+    Xvfb "${DISPLAY}" -screen 0 1920x1080x24 -nolisten tcp &\n\
+    sleep 1\n\
+    if xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1; then\n\
+        echo "Xvfb started successfully."\n\
+    else\n\
+        echo "WARNING: Xvfb failed to start, Playwright will use headless mode."\n\
+        unset DISPLAY\n\
+    fi\n\
+fi\n\
+\n\
 echo "Starting server on port $PORT..."\n\
 \n\
 # 启动应用\n\

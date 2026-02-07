@@ -30,6 +30,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - PORT=7080
+      - DISPLAY=:99
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7080/api/health"]
       interval: 30s
