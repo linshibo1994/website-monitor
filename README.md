@@ -125,8 +125,11 @@ email:
 ### 第二步：构建并启动
 
 ```bash
-# 构建镜像并启动所有服务
+# 构建镜像并启动（默认单容器）
 docker compose up -d --build
+
+# 如需兼容旧模式（四容器）
+docker compose --profile legacy-workers up -d --build
 
 # 首次构建需要下载 Playwright 镜像（约800MB），请耐心等待
 ```
@@ -150,6 +153,9 @@ curl http://localhost:7080/api/health
 # 启动服务
 docker compose up -d
 
+# 启动兼容旧模式（四容器）
+docker compose --profile legacy-workers up -d
+
 # 停止服务
 docker compose down
 
@@ -160,8 +166,7 @@ docker compose restart
 docker compose logs -f
 
 # 查看特定服务日志
-docker compose logs -f monitor           # API 服务日志
-docker compose logs -f monitor-scheduler # 调度器日志
+docker compose logs -f monitor           # API + 内置调度日志
 
 # 手动执行一次检测
 docker compose exec monitor python -m backend.app.services.monitor --once
@@ -175,12 +180,17 @@ docker compose down && docker compose up -d --build
 
 ### Docker 服务说明
 
-| 服务名 | 容器名 | 功能 | 端口 |
-|-------|--------|------|------|
-| `monitor` | `arcteryx-monitor` | Web API 服务 | 7080 |
-| `monitor-scheduler` | `arcteryx-scheduler` | 定时监控任务（每10分钟） | - |
-| `inventory-monitor` | `arcteryx-inventory-monitor` | Arc'teryx 库存监控 | - |
-| `rakuten-monitor` | `rakuten-monitor` | 乐天商品监控 | - |
+默认仅启动 1 个容器（`monitor`），其内部自动启动监控调度任务，降低内存占用。
+
+| 服务名 | 容器名 | 默认是否启动 | 功能 | 端口 |
+|-------|--------|-------------|------|------|
+| `monitor` | `arcteryx-monitor` | 是 | Web API + SCHEELS 调度 + 库存调度 + 上线监控调度 + 乐天监控 | 7080 |
+| `monitor-scheduler` | `arcteryx-scheduler` | 否（legacy profile） | 旧版独立调度容器 | - |
+| `inventory-monitor` | `arcteryx-inventory-monitor` | 否（legacy profile） | 旧版独立库存容器 | - |
+| `rakuten-monitor` | `rakuten-monitor` | 否（legacy profile） | 旧版独立乐天容器 | - |
+
+> 若要启用旧版四容器模式：`docker compose --profile legacy-workers up -d`  
+> 建议同时设置：`AUTO_START_MONITOR_SCHEDULER=false AUTO_START_INVENTORY_SCHEDULER=false AUTO_START_RELEASE_MONITOR=false AUTO_START_RAKUTEN_MONITOR=false`，避免重复调度。
 
 ### 访问 Web 界面
 

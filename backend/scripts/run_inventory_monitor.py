@@ -172,8 +172,7 @@ def main():
     # 守护进程模式
     if args.daemon:
         if not inventory_monitor_service.monitored_products:
-            print("⚠️  暂无监控商品，请先使用 --add 添加商品")
-            return
+            print("⚠️  暂无监控商品，守护进程将继续运行并等待新增商品")
         print(f"🚀 启动库存监控守护进程（间隔: {args.interval} 分钟）")
         print("   按 Ctrl+C 停止")
         try:

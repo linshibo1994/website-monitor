@@ -140,6 +140,36 @@ class ArcteryxInventoryScraper:
         # 检测是否在 Docker 环境中运行
         self.is_docker = self._is_running_in_docker()
 
+    def _force_headless(self) -> bool:
+        """是否强制使用 headless 模式（通过环境变量控制）"""
+        return os.environ.get("PLAYWRIGHT_FORCE_HEADLESS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+    async def _launch_browser_with_fallback(self, playwright_instance, browser_args, scene: str):
+        """
+        统一浏览器启动逻辑：
+        1. 有 DISPLAY 时优先尝试有头模式
+        2. 启动失败自动回退 headless
+        """
+        has_display = os.environ.get('DISPLAY') is not None
+        # Arc'teryx 本地仍保留有头模式；Docker 环境仅在 DISPLAY 可用时尝试有头模式
+        prefer_headed = ((not self.is_docker) or has_display) and not self._force_headless()
+
+        if prefer_headed:
+            logger.info(f"{scene}：检测到 DISPLAY={os.environ.get('DISPLAY')}，优先尝试有头模式")
+            try:
+                return await playwright_instance.chromium.launch(
+                    headless=False,
+                    args=browser_args
+                )
+            except Exception as e:
+                logger.warning(f"{scene}：有头模式启动失败，自动回退 headless。错误: {type(e).__name__}: {e}")
+
+        logger.info(f"{scene}：使用 headless 模式")
+        return await playwright_instance.chromium.launch(
+            headless=True,
+            args=browser_args
+        )
+
     def _is_running_in_docker(self) -> bool:
         """检测是否在 Docker 容器中运行"""
         import os
@@ -201,27 +231,15 @@ class ArcteryxInventoryScraper:
                 '--disable-setuid-sandbox',
             ]
 
-            has_display = os.environ.get('DISPLAY') is not None
-
-            if self.is_docker and has_display:
-                logger.info(f"Docker 环境 (DISPLAY={os.environ.get('DISPLAY')})：使用 Xvfb 虚拟显示")
-                browser = await playwright_instance.chromium.launch(
-                    headless=False,
-                    args=browser_args
-                )
-            elif self.is_docker:
-                logger.info("Docker 环境：使用 headless 模式（颜色获取）")
-                browser = await playwright_instance.chromium.launch(
-                    headless=True,
-                    args=browser_args
-                )
-            else:
-                logger.info("本地环境：使用非 headless 模式（颜色获取）")
+            if not self.is_docker:
+                # 本地环境将窗口移出可视区域，避免干扰桌面
                 browser_args.append('--window-position=-10000,-10000')
-                browser = await playwright_instance.chromium.launch(
-                    headless=False,
-                    args=browser_args
-                )
+
+            browser = await self._launch_browser_with_fallback(
+                playwright_instance,
+                browser_args,
+                scene="Arc'teryx 颜色抓取"
+            )
 
             context = await browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
@@ -335,27 +353,15 @@ class ArcteryxInventoryScraper:
                 '--disable-setuid-sandbox',
             ]
 
-            has_display = os.environ.get('DISPLAY') is not None
-
-            if self.is_docker and has_display:
-                logger.info(f"Docker 环境 (DISPLAY={os.environ.get('DISPLAY')})：使用 Xvfb 虚拟显示")
-                browser = await playwright_instance.chromium.launch(
-                    headless=False,
-                    args=browser_args
-                )
-            elif self.is_docker:
-                logger.info("Docker 环境：使用 headless 模式（尺码获取）")
-                browser = await playwright_instance.chromium.launch(
-                    headless=True,
-                    args=browser_args
-                )
-            else:
-                logger.info("本地环境：使用非 headless 模式（尺码获取）")
+            if not self.is_docker:
+                # 本地环境将窗口移出可视区域，避免干扰桌面
                 browser_args.append('--window-position=-10000,-10000')
-                browser = await playwright_instance.chromium.launch(
-                    headless=False,
-                    args=browser_args
-                )
+
+            browser = await self._launch_browser_with_fallback(
+                playwright_instance,
+                browser_args,
+                scene="Arc'teryx 尺码抓取"
+            )
 
             context = await browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
@@ -673,32 +679,15 @@ class ArcteryxInventoryScraper:
                 '--disable-setuid-sandbox',
             ]
 
-            # 检查是否有 DISPLAY 环境变量（Docker + Xvfb 环境）
-            import os
-            has_display = os.environ.get('DISPLAY') is not None
-
-            if self.is_docker and has_display:
-                # Docker 环境 + Xvfb：使用非 headless 模式（虚拟显示）
-                logger.info(f"Docker 环境 (DISPLAY={os.environ.get('DISPLAY')})：使用 Xvfb 虚拟显示")
-                browser = await playwright_instance.chromium.launch(
-                    headless=False,
-                    args=browser_args
-                )
-            elif self.is_docker:
-                # Docker 环境无 Xvfb：尝试 headless 模式
-                logger.info("Docker 环境：使用 headless 模式")
-                browser = await playwright_instance.chromium.launch(
-                    headless=True,
-                    args=browser_args
-                )
-            else:
-                # 本地环境：使用非 headless 模式，窗口移到屏幕外
-                logger.info("本地环境：使用非 headless 模式")
+            if not self.is_docker:
+                # 本地环境将窗口移出可视区域，避免干扰桌面
                 browser_args.append('--window-position=-10000,-10000')
-                browser = await playwright_instance.chromium.launch(
-                    headless=False,
-                    args=browser_args
-                )
+
+            browser = await self._launch_browser_with_fallback(
+                playwright_instance,
+                browser_args,
+                scene="Arc'teryx 库存检查"
+            )
 
             # 创建一个带有美国地区伪装的浏览器上下文
             context = await browser.new_context(

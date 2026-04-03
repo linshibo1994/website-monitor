@@ -3,7 +3,8 @@
 # 作者：linshibo
 # ===========================================
 # 使用方法:
-#   构建并启动: docker compose up -d --build
+#   默认（推荐，单容器）: docker compose up -d --build
+#   兼容旧模式（四容器）: docker compose --profile legacy-workers up -d --build
 #   查看日志:   docker compose logs -f
 #   查看特定服务日志: docker compose logs -f rakuten-monitor
 #   停止服务:   docker compose down
@@ -26,11 +27,25 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       # 配置文件（可选：如需在容器外修改配置）
-      - ./config.yaml:/app/config.yaml:ro
+      - ./config.yaml:/app/config.yaml
     environment:
       - TZ=Asia/Shanghai
       - PORT=7080
-      - DISPLAY=:99
+      # 单容器模式：由 API 进程内聚启动调度任务
+      - AUTO_START_MONITOR_SCHEDULER=${AUTO_START_MONITOR_SCHEDULER:-true}
+      - AUTO_START_INVENTORY_SCHEDULER=${AUTO_START_INVENTORY_SCHEDULER:-true}
+      - INVENTORY_INTERVAL_MINUTES=${INVENTORY_INTERVAL_MINUTES:-5}
+      - AUTO_START_RAKUTEN_MONITOR=${AUTO_START_RAKUTEN_MONITOR:-true}
+      - RAKUTEN_INTERVAL_SECONDS=${RAKUTEN_INTERVAL_SECONDS:-300}
+      - AUTO_START_RELEASE_MONITOR=${AUTO_START_RELEASE_MONITOR:-true}
+      - RELEASE_MONITOR_INTERVAL_SECONDS=${RELEASE_MONITOR_INTERVAL_SECONDS:-300}
+      # 默认强制 headless，减少 Xvfb 依赖与内存占用
+      - PLAYWRIGHT_FORCE_HEADLESS=${PLAYWRIGHT_FORCE_HEADLESS:-true}
+    # 资源限制（4G 服务器建议值，可按需调整）
+    mem_limit: 1600m
+    mem_reservation: 768m
+    pids_limit: 512
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7080/api/health"]
       interval: 30s
@@ -38,8 +53,12 @@ services:
       retries: 3
       start_period: 10s
 
-  # 定时监控任务（每10分钟执行一次）
+  # ===== 兼容旧模式：以下服务默认不启动 =====
+  # 启动方式：docker compose --profile legacy-workers up -d
+
+  # 定时监控任务（每10分钟执行一次，兼容旧模式）
   monitor-scheduler:
+    profiles: ["legacy-workers"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -48,17 +67,22 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./config.yaml:/app/config.yaml:ro
+      - ./config.yaml:/app/config.yaml
     environment:
       - TZ=Asia/Shanghai
+      - PLAYWRIGHT_FORCE_HEADLESS=true
+    mem_limit: 768m
+    mem_reservation: 384m
+    pids_limit: 256
     # 启动守护进程模式
     command: ["python", "-m", "backend.app.services.monitor", "--daemon"]
     depends_on:
       monitor:
         condition: service_healthy
 
-  # Arc'teryx 官网库存监控服务（监控指定商品的尺寸库存变化）
+  # Arc'teryx 官网库存监控服务（兼容旧模式）
   inventory-monitor:
+    profiles: ["legacy-workers"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -67,10 +91,14 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./config.yaml:/app/config.yaml:ro
+      - ./config.yaml:/app/config.yaml
     environment:
       - TZ=Asia/Shanghai
       - DISPLAY=:99
+      - PLAYWRIGHT_FORCE_HEADLESS=false
+    mem_limit: 1024m
+    mem_reservation: 512m
+    pids_limit: 384
     # 使用 xvfb-run 运行以支持非 headless 浏览器
     # 每5分钟检查一次库存
     command: >
@@ -83,8 +111,9 @@ services:
       monitor:
         condition: service_healthy
 
-  # 乐天商品监控服务（监控指定商品页面是否从404恢复可用）
+  # 乐天商品监控服务（兼容旧模式）
   rakuten-monitor:
+    profiles: ["legacy-workers"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -95,9 +124,13 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./config.yaml:/app/config.yaml:ro
+      - ./config.yaml:/app/config.yaml
     environment:
       - TZ=Asia/Shanghai
+      - PLAYWRIGHT_FORCE_HEADLESS=true
+    mem_limit: 256m
+    mem_reservation: 128m
+    pids_limit: 128
       # 可选：通过环境变量覆盖邮件配置
       # - MONITOR_SENDER_EMAIL=your_email@qq.com
       # - MONITOR_SENDER_PASSWORD=your_password
