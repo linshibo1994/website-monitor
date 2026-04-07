@@ -52,13 +52,13 @@ class ScheelsScraper:
         self.browser: Optional[Browser] = None
         self.base_url = "https://www.scheels.com"
 
-    async def _init_browser(self) -> Browser:
-        """初始化浏览器"""
-        playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch(
+    async def _init_browser(self) -> tuple:
+        """初始化浏览器，返回 (playwright_instance, browser)"""
+        playwright_instance = await async_playwright().start()
+        browser = await playwright_instance.chromium.launch(
             headless=self.config.monitor.headless
         )
-        return browser
+        return playwright_instance, browser
 
     async def _create_page(self, browser: Browser) -> Page:
         """创建页面并设置"""
@@ -147,9 +147,10 @@ class ScheelsScraper:
         """
         start_time = datetime.now()
         browser = None
+        playwright_instance = None
 
         try:
-            browser = await self._init_browser()
+            playwright_instance, browser = await self._init_browser()
             page = await self._create_page(browser)
 
             # 访问目标页面
@@ -240,6 +241,8 @@ class ScheelsScraper:
         finally:
             if browser:
                 await browser.close()
+            if playwright_instance:
+                await playwright_instance.stop()
 
     async def _get_total_count_primary(self, page: Page) -> Tuple[int, str]:
         """
@@ -577,8 +580,9 @@ class ScheelsScraper:
         用于频繁检测场景
         """
         browser = None
+        playwright_instance = None
         try:
-            browser = await self._init_browser()
+            playwright_instance, browser = await self._init_browser()
             page = await self._create_page(browser)
 
             await page.goto(self.config.monitor.url, wait_until='networkidle')
@@ -599,6 +603,8 @@ class ScheelsScraper:
         finally:
             if browser:
                 await browser.close()
+            if playwright_instance:
+                await playwright_instance.stop()
 
 
 # 创建抓取器单例
