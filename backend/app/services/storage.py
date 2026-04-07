@@ -142,9 +142,15 @@ class StorageService:
 
             # 更新商品表
             now = datetime.utcnow()
+            seen_product_ids = set()
 
             # 更新现有商品
             for product_info in result.products:
+                # 跳过同批次中重复的 product_id
+                if product_info.product_id in seen_product_ids:
+                    continue
+                seen_product_ids.add(product_info.product_id)
+
                 existing = session.execute(
                     select(Product).where(Product.product_id == product_info.product_id)
                 ).scalar_one_or_none()
