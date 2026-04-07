@@ -80,6 +80,14 @@ logging:
   # 是否输出到控制台
   console: true
 
+# 代理配置（用于绕过 Cloudflare 等访问限制）
+proxy:
+  # 是否启用代理
+  enabled: false
+  # 代理服务器地址，支持 socks5:// 和 http:// 协议
+  # 也可通过环境变量 PROXY_SERVER 设置（优先级更高）
+  server: ""
+
 # 站点模板配置（用于智能URL解析）
 sites:
   arcteryx_us:

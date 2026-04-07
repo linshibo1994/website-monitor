@@ -17,6 +17,8 @@ import requests
 from bs4 import BeautifulSoup
 from loguru import logger
 
+from ...config import config_manager
+
 
 @dataclass
 class StockVariant:
@@ -204,12 +206,14 @@ class DaytonaParkDetector(BaseDetector):
                     args=browser_args
                 )
 
+            proxy = config_manager.get_playwright_proxy()
             context = await browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
                 locale='ja-JP',
                 timezone_id='Asia/Tokyo',
-                ignore_https_errors=True,  # 忽略 SSL 证书错误
+                ignore_https_errors=True,
+                **({"proxy": proxy} if proxy else {})
             )
 
             # 隐藏 webdriver 属性
@@ -529,12 +533,14 @@ class RakutenDetector(BaseDetector):
                     args=browser_args
                 )
 
+            proxy = config_manager.get_playwright_proxy()
             context = await browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
                 locale='ja-JP',
                 timezone_id='Asia/Tokyo',
-                ignore_https_errors=True,  # 忽略 SSL 证书错误
+                ignore_https_errors=True,
+                **({"proxy": proxy} if proxy else {})
             )
 
             # 隐藏 webdriver 属性

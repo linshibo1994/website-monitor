@@ -142,6 +142,13 @@ class SiteConfig:
 
 
 @dataclass
+class ProxyConfig:
+    """代理配置"""
+    enabled: bool = False
+    server: str = ""  # e.g. "socks5://127.0.0.1:7890"
+
+
+@dataclass
 class AuthConfig:
     """认证配置"""
     admin_username: str = "admin"
@@ -161,6 +168,7 @@ class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    proxy: ProxyConfig = field(default_factory=ProxyConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
     sites: Dict[str, SiteConfig] = field(default_factory=dict)  # 站点配置
 
@@ -207,6 +215,7 @@ class ConfigManager:
             web_data = data.get('web', {})
             database_data = data.get('database', {})
             logging_data = data.get('logging', {})
+            proxy_data = data.get('proxy', {})
             auth_data = data.get('auth', {})
             sites_data = data.get('sites', {})
 
@@ -238,9 +247,16 @@ class ConfigManager:
                 web=WebConfig(**web_data) if web_data else WebConfig(),
                 database=DatabaseConfig(**database_data) if database_data else DatabaseConfig(),
                 logging=LoggingConfig(**logging_data) if logging_data else LoggingConfig(),
+                proxy=ProxyConfig(**proxy_data) if proxy_data else ProxyConfig(),
                 auth=AuthConfig(**auth_data) if auth_data else AuthConfig(),
                 sites=sites,
             )
+
+            # 环境变量覆盖代理配置
+            proxy_server_env = os.environ.get('PROXY_SERVER', '').strip()
+            if proxy_server_env:
+                self._config.proxy.enabled = True
+                self._config.proxy.server = proxy_server_env
 
             logger.info(f"配置文件加载成功: {config_path}，站点数量: {len(sites)}")
 
@@ -332,6 +348,10 @@ class ConfigManager:
                 'backup_count': self._config.logging.backup_count,
                 'console': self._config.logging.console,
             },
+            'proxy': {
+                'enabled': self._config.proxy.enabled,
+                'server': self._config.proxy.server,
+            },
             'auth': {
                 'admin_username': self._config.auth.admin_username,
                 'admin_password': self._config.auth.admin_password,
@@ -375,6 +395,12 @@ class ConfigManager:
         for key, value in kwargs.items():
             if hasattr(self._config.qq, key):
                 setattr(self._config.qq, key, value)
+
+    def get_playwright_proxy(self) -> Optional[Dict[str, str]]:
+        """获取 Playwright 兼容的代理配置，未启用时返回 None"""
+        if self._config and self._config.proxy.enabled and self._config.proxy.server:
+            return {"server": self._config.proxy.server}
+        return None
 
 
 # 全局配置管理器实例

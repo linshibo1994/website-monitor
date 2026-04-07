@@ -10,6 +10,7 @@ from datetime import datetime
 from loguru import logger
 
 from .inventory_scraper import ProductInventory, VariantStock, InventoryChange
+from ..config import config_manager
 
 
 class ScheelsInventoryScraper:
@@ -102,11 +103,13 @@ class ScheelsInventoryScraper:
                 scene="Scheels 颜色抓取"
             )
 
+            proxy = config_manager.get_playwright_proxy()
             context = await browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 locale='en-US',
                 timezone_id='America/New_York',
+                **({"proxy": proxy} if proxy else {})
             )
 
             await context.add_init_script('''
@@ -169,11 +172,13 @@ class ScheelsInventoryScraper:
                 scene="Scheels 尺码抓取"
             )
 
+            proxy = config_manager.get_playwright_proxy()
             context = await browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 locale='en-US',
                 timezone_id='America/New_York',
+                **({"proxy": proxy} if proxy else {})
             )
 
             await context.add_init_script('''
@@ -292,11 +297,13 @@ class ScheelsInventoryScraper:
             )
 
             # 创建浏览器上下文
+            proxy = config_manager.get_playwright_proxy()
             context = await browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 locale='en-US',
                 timezone_id='America/New_York',
+                **({"proxy": proxy} if proxy else {})
             )
 
             # 移除 webdriver 标记

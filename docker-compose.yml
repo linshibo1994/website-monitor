@@ -41,6 +41,8 @@ services:
       - RELEASE_MONITOR_INTERVAL_SECONDS=${RELEASE_MONITOR_INTERVAL_SECONDS:-300}
       # 默认强制 headless，减少 Xvfb 依赖与内存占用
       - PLAYWRIGHT_FORCE_HEADLESS=${PLAYWRIGHT_FORCE_HEADLESS:-true}
+      # 代理服务器（用于绕过 Cloudflare 等访问限制）
+      - PROXY_SERVER=${PROXY_SERVER:-}
     # 资源限制（4G 服务器建议值，可按需调整）
     mem_limit: 1600m
     mem_reservation: 768m

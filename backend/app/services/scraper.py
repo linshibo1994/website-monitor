@@ -10,7 +10,7 @@ from datetime import datetime
 from playwright.async_api import async_playwright, Page, Browser, TimeoutError as PlaywrightTimeout
 from loguru import logger
 
-from ..config import get_config
+from ..config import get_config, config_manager
 
 
 # 历史记录：用于数据合理性检查
@@ -62,9 +62,11 @@ class ScheelsScraper:
 
     async def _create_page(self, browser: Browser) -> Page:
         """创建页面并设置"""
+        proxy = config_manager.get_playwright_proxy()
         context = await browser.new_context(
             viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            **({"proxy": proxy} if proxy else {})
         )
         page = await context.new_page()
         # 设置超时
